@@ -1,15 +1,5 @@
 /*
-lets say we have a 32 bit risc architecture that is like so:
-- 1 stack register
-- 1 program counter
-- 16 32 bit integer registers
-- 16 32 bit floating point registers
-- flags (zero, overflow, carry, interrupt mask, floating point nan, floating point signalling nan)
-
 - load/store instructions
-- basic integer arithmetic instructions (add, sub, mul, div)
-- basic floating point arithmetic instructions (add, sub, mul, div)
-- 8 bit interrupt mask
 - memmap instructions (elevate, deelevate)
 - bitwise operations (bitshift, bitwise and/or/xor)
 - jumps
@@ -222,7 +212,93 @@ where T: Address
         self.update_flags_float(self.fs[f0]);
     }
 
+    fn bsl(&mut self, x0: usize, x1: usize) {
+        let res = if self.xs[x1] < 32 {
+            (self.xs[x0] as u64) << self.xs[x1] as u64
+        } else {
+            0
+        } | self.get_flag(F_CARRY) as u64;
+
+        clear_flags!(self, F_ZERO, F_CARRY, F_NEGATIVE, F_PARITY);
+        self.set_flag(F_ZERO, res as u32 == 0);
+        self.set_flag(F_NEGATIVE, res & 0x80000000 != 0);
+        if self.xs[x1] == 1 {
+            self.set_flag(F_CARRY, res & 0x100000000 != 0);
+        }
+        self.set_flag(F_PARITY, res & 1 != 0);
+        self.xs[x0] = res as u32;
+    }
+
+    fn bsr(&mut self, x0: usize, x1: usize) {
+        let res = if self.xs[x1] < 32 {
+            (self.xs[x0] as u64) >> self.xs[x1] as u64
+        } else {
+            0
+        } | self.get_flag(F_CARRY) as u64;
+
+        clear_flags!(self, F_ZERO, F_CARRY, F_NEGATIVE, F_PARITY);
+        self.set_flag(F_ZERO, res as u32 == 0);
+        self.set_flag(F_NEGATIVE, res & 0x80000000 != 0);
+        if self.xs[x1] == 1 {
+            self.set_flag(F_CARRY, self.xs[x0] & 1 != 0);
+        }
+        self.set_flag(F_PARITY, res & 1 != 0);
+        self.xs[x0] = res as u32;
+    }
+
+    fn read(&mut self, addr: u32) -> u8 {
+        self.addressing.read(addr)
+    }
+
+    fn write(&mut self, addr: u32, data: u8) {
+        self.addressing.write(addr, data);
+    }
+
+    fn decode_instruction(&mut self, opcode: u8) {
+        match opcode & 0xc0 {
+            // 0b00xxxxxx -> no arguments
+            0x00 => {
+            }
+
+            // 0b01xxyyyy -> one register argument
+            0x40 => {
+            }
+
+            // 0b10xxxxxx 0byyyyzzzz -> two register arguments
+            0x80 => {
+                let data = self.read(self.pc);
+                self.pc += 1;
+                let (fst, snd) = (((data & 0xf0) >> 4) as usize, (data & 0x0f) as usize);
+
+                match opcode & 0x3f {
+                    0x00 => self.iadd(fst, snd),
+                    0x01 => self.isub(fst, snd),
+                    0x02 => self.imul(fst, snd),
+                    0x03 => self.idiv(fst, snd),
+                    0x04 => self.imod(fst, snd),
+                    0x05 => self.fadd(fst, snd),
+                    0x06 => self.fsub(fst, snd),
+                    0x07 => self.fmul(fst, snd),
+                    0x08 => self.fdiv(fst, snd),
+                    0x09 => self.bsl(fst, snd),
+                    0x0a => self.bsr(fst, snd),
+
+                    _ => ()
+                }
+            }
+
+            // 0b11xxxxxx args -> miscellaneous arguments
+            0xc0 => {
+            }
+
+            _ => unreachable!("nya :(")
+        }
+    }
+
     pub fn step(&mut self) {
+        let opcode = self.read(self.pc);
+        self.pc += 1;
+        self.decode_instruction(opcode);
     }
 }
 
@@ -232,8 +308,9 @@ mod tests {
 
     #[test]
     fn cpu_add() {
-        // Simple add
         let mut cpu = CPU::new(SimpleAddress::default());
+
+        // Simple add
         cpu.xs[0] = 5;
         cpu.xs[1] = 10;
         cpu.iadd(0, 1);
@@ -260,6 +337,32 @@ mod tests {
         assert!(cpu.get_flag(F_CARRY));
         assert!(!cpu.get_flag(F_OVERFLOW));
         assert!(!cpu.get_flag(F_NEGATIVE));
+    }
+
+    #[test]
+    fn cpu_bsl() {
+        let mut cpu = CPU::new(SimpleAddress::default());
+
+        // Simple bitshift
+        cpu.xs[0] = 3;
+        cpu.xs[1] = 2;
+        cpu.bsl(0, 1);
+        assert_eq!(cpu.xs[0], 12);
+        assert!(!cpu.get_flag(F_CARRY));
+
+        // Overflow
+        cpu.xs[0] = 3;
+        cpu.xs[1] = 32;
+        cpu.bsl(0, 1);
+        assert_eq!(cpu.xs[0], 0);
+        assert!(!cpu.get_flag(F_CARRY));
+
+        // Carry
+        cpu.xs[0] = 0xffffffff;
+        cpu.xs[1] = 1;
+        cpu.bsl(0, 1);
+        assert_eq!(cpu.xs[0], 0xfffffffe);
+        assert!(cpu.get_flag(F_CARRY));
     }
 }
 
