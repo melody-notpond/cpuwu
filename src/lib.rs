@@ -19,6 +19,17 @@ first 4 bits set aside for mmu:
 - bit 3 - available
 */
 
+#[derive(Debug)]
+pub struct InvalidMemoryAccess;
+
+impl std::fmt::Display for InvalidMemoryAccess {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
+        write!(f, "Invalid memory access")
+    }
+}
+
+impl std::error::Error for InvalidMemoryAccess { }
+
 pub trait Address {
     fn read(&mut self, addr: u32) -> u8;
 
@@ -118,7 +129,6 @@ macro_rules! clear_flags {
     }
 }
 
-#[allow(clippy::unusual_byte_groupings)]
 impl<T> CPU<T>
 where T: Address
 {
@@ -133,8 +143,8 @@ where T: Address
         }
     }
 
-    fn check_memory(&self) -> Option<u32> {
-        None
+    fn check_memory(&self, addr: u32) -> Result<u32, InvalidMemoryAccess> {
+        Ok(addr)
     }
 
     fn set_flag(&mut self, flag: u32, val: bool) {
@@ -246,15 +256,33 @@ where T: Address
         self.xs[x0] = res as u32;
     }
 
-    fn read(&mut self, addr: u32) -> u8 {
-        self.addressing.read(addr)
+    fn and(&mut self, x0: usize, x1: usize) {
+        self.xs[x0] &= self.xs[x1];
+        self.update_flags_int(self.xs[x0]);
     }
 
-    fn write(&mut self, addr: u32, data: u8) {
+    fn or(&mut self, x0: usize, x1: usize) {
+        self.xs[x0] |= self.xs[x1];
+        self.update_flags_int(self.xs[x0]);
+    }
+
+    fn xor(&mut self, x0: usize, x1: usize) {
+        self.xs[x0] ^= self.xs[x1];
+        self.update_flags_int(self.xs[x0]);
+    }
+
+    fn read(&mut self, addr: u32) -> Result<u8, InvalidMemoryAccess> {
+        self.check_memory(addr)?;
+        Ok(self.addressing.read(addr))
+    }
+
+    fn write(&mut self, addr: u32, data: u8) -> Result<(), InvalidMemoryAccess> {
+        self.check_memory(addr)?;
         self.addressing.write(addr, data);
+        Ok(())
     }
 
-    fn decode_instruction(&mut self, opcode: u8) {
+    fn decode_instruction(&mut self, opcode: u8) -> Result<(), InvalidMemoryAccess> {
         match opcode & 0xc0 {
             // 0b00xxxxxx -> no arguments
             0x00 => {
@@ -266,7 +294,7 @@ where T: Address
 
             // 0b10xxxxxx 0byyyyzzzz -> two register arguments
             0x80 => {
-                let data = self.read(self.pc);
+                let data = self.read(self.pc)?;
                 self.pc += 1;
                 let (fst, snd) = (((data & 0xf0) >> 4) as usize, (data & 0x0f) as usize);
 
@@ -282,6 +310,9 @@ where T: Address
                     0x08 => self.fdiv(fst, snd),
                     0x09 => self.bsl(fst, snd),
                     0x0a => self.bsr(fst, snd),
+                    0x0b => self.and(fst, snd),
+                    0x0c => self.or(fst, snd),
+                    0x0d => self.xor(fst, snd),
 
                     _ => ()
                 }
@@ -293,12 +324,14 @@ where T: Address
 
             _ => unreachable!("nya :(")
         }
+
+        Ok(())
     }
 
-    pub fn step(&mut self) {
-        let opcode = self.read(self.pc);
+    pub fn step(&mut self) -> Result<(), InvalidMemoryAccess> {
+        let opcode = self.read(self.pc)?;
         self.pc += 1;
-        self.decode_instruction(opcode);
+        self.decode_instruction(opcode)
     }
 }
 
