@@ -1,7 +1,6 @@
 /*
 - load/store instructions
 - memmap instructions (elevate, deelevate)
-- bitwise operations (bitshift, bitwise and/or/xor)
 - jumps
 - branching
 - calling functions
@@ -83,12 +82,11 @@ where T: Address
     fs: [f32; 16],
 
     // Flags
-    // IIIIIIII LLLDZVCN PAFRMT
+    // IIIIIIII LLLZVCNP AFRMT
     //            111111 11112222 22222233
     // 01234567 89012345 67890123 45678901
     // IIIIIIII - Interrupt mask
     // LLL      - Last interrupt
-    // D        - Disable interrupt
     // Z        - Zero
     // V        - oVerflow
     // C        - Carry
@@ -104,24 +102,16 @@ where T: Address
     addressing: T,
 }
 
-/*
-have 00xxxxxx be instructions that dont take any arguments
-have 01xxyyyy be instructions that take one register argument
-have 10xxxxxx be instructions that take two register arguments in another byte
-and 11xxxxxx are miscellaneous instructions that take word arguments
-*/
-
-static F_DISABLE_INTERRUPT: u32 = 11;
-static F_ZERO: u32 = 12;
-static F_OVERFLOW: u32 = 13;
-static F_CARRY: u32 = 14;
-static F_NEGATIVE: u32 = 15;
-static F_PARITY: u32 = 16;
-static F_NAN: u32 = 17;
-static F_INFINITE: u32 = 18;
-static F_USER_RING: u32 = 19;
-static F_MEMMAP_ENABLE: u32 = 20;
-static F_TRAP: u32 = 21;
+static F_ZERO: u32 = 11;
+static F_OVERFLOW: u32 = 12;
+static F_CARRY: u32 = 13;
+static F_NEGATIVE: u32 = 14;
+static F_PARITY: u32 = 15;
+static F_NAN: u32 = 16;
+static F_INFINITE: u32 = 17;
+static F_USER_RING: u32 = 18;
+static F_MEMMAP_ENABLE: u32 = 19;
+static F_TRAP: u32 = 20;
 
 macro_rules! clear_flags {
     ($self: ident, $($flags: ident),*) => {
@@ -144,6 +134,7 @@ where T: Address
     }
 
     fn check_memory(&self, addr: u32) -> Result<u32, InvalidMemoryAccess> {
+        // TODO: actually do memory mapping stuff
         Ok(addr)
     }
 
@@ -153,6 +144,34 @@ where T: Address
 
     fn get_flag(&self, flag: u32) -> bool {
         self.flags & (1 << flag) != 0
+    }
+
+    fn set_carry(&mut self, val: bool) {
+        clear_flags!(self, F_CARRY);
+        self.set_flag(F_CARRY, val);
+    }
+
+    fn set_user_ring(&mut self, val: bool) {
+        if !self.get_flag(F_USER_RING) {
+            clear_flags!(self, F_USER_RING);
+            self.set_flag(F_USER_RING, val);
+        } else {
+            todo!("interrupt on invalid access");
+        }
+    }
+
+    fn set_memmap_enable(&mut self, val: bool) {
+        if !self.get_flag(F_USER_RING) {
+            clear_flags!(self, F_MEMMAP_ENABLE);
+            self.set_flag(F_MEMMAP_ENABLE, val);
+        } else {
+            todo!("interrupt on invalid access");
+        }
+    }
+
+    fn set_trap(&mut self, val: bool) {
+        clear_flags!(self, F_TRAP);
+        self.set_flag(F_TRAP, val);
     }
 
     fn iadd(&mut self, x0: usize, x1: usize) {
@@ -286,6 +305,19 @@ where T: Address
         match opcode & 0xc0 {
             // 0b00xxxxxx -> no arguments
             0x00 => {
+                match opcode & 0x3f {
+                    // Setting and clearing flags
+                    0x00 => self.set_carry(false),
+                    0x01 => self.set_carry(true),
+                    0x02 => self.set_trap(false),
+                    0x03 => self.set_trap(true),
+                    0x04 => self.set_memmap_enable(false),
+                    0x05 => self.set_memmap_enable(true),
+                    0x06 => self.set_user_ring(false),
+                    0x07 => self.set_user_ring(true),
+
+                    _ => ()
+                }
             }
 
             // 0b01xxyyyy -> one register argument
@@ -299,15 +331,20 @@ where T: Address
                 let (fst, snd) = (((data & 0xf0) >> 4) as usize, (data & 0x0f) as usize);
 
                 match opcode & 0x3f {
+                    // Integer arithmetic
                     0x00 => self.iadd(fst, snd),
                     0x01 => self.isub(fst, snd),
                     0x02 => self.imul(fst, snd),
                     0x03 => self.idiv(fst, snd),
                     0x04 => self.imod(fst, snd),
+
+                    // Floating point arithmetic
                     0x05 => self.fadd(fst, snd),
                     0x06 => self.fsub(fst, snd),
                     0x07 => self.fmul(fst, snd),
                     0x08 => self.fdiv(fst, snd),
+
+                    // Bitwise operations
                     0x09 => self.bsl(fst, snd),
                     0x0a => self.bsr(fst, snd),
                     0x0b => self.and(fst, snd),
