@@ -174,6 +174,26 @@ where T: Address
         self.set_flag(F_TRAP, val);
     }
 
+    fn inc(&mut self, x0: usize) {
+        let res = self.xs[x0] as u64 + 1;
+        clear_flags!(self, F_ZERO, F_CARRY, F_NEGATIVE, F_PARITY);
+        self.set_flag(F_ZERO, res as u32 == 0);
+        self.set_flag(F_NEGATIVE, res & 0x80000000 != 0);
+        self.set_flag(F_CARRY, res & 0x100000000 != 0);
+        self.set_flag(F_PARITY, res & 1 != 0);
+        self.xs[x0] = res as u32;
+    }
+
+    fn dec(&mut self, x0: usize) {
+        let res = self.xs[x0] as u64 + 0xffffffff;
+        clear_flags!(self, F_ZERO, F_CARRY, F_NEGATIVE, F_PARITY);
+        self.set_flag(F_ZERO, res as u32 == 0);
+        self.set_flag(F_NEGATIVE, res & 0x80000000 != 0);
+        self.set_flag(F_CARRY, res & 0x100000000 != 0);
+        self.set_flag(F_PARITY, res & 1 != 0);
+        self.xs[x0] = res as u32;
+    }
+
     fn iadd(&mut self, x0: usize, x1: usize) {
         let res = self.xs[x0] as u64 + self.xs[x1] as u64 + self.get_flag(F_CARRY) as u64;
         clear_flags!(self, F_ZERO, F_OVERFLOW, F_CARRY, F_NEGATIVE, F_PARITY);
@@ -290,6 +310,43 @@ where T: Address
         self.update_flags_int(self.xs[x0]);
     }
 
+    fn move_int(&mut self, x0: usize, x1: usize) {
+        self.xs[x0] = self.xs[x1];
+        self.update_flags_int(self.xs[x0]);
+    }
+
+    fn move_float(&mut self, x0: usize, x1: usize) {
+        self.fs[x0] = self.fs[x1];
+        self.update_flags_float(self.fs[x0]);
+    }
+
+    fn move_int_float(&mut self, x0: usize, f1: usize) {
+        self.xs[x0] = self.fs[f1] as u32;
+        self.update_flags_int(self.xs[x0]);
+    }
+
+    fn move_float_int(&mut self, f0: usize, x1: usize) {
+        self.fs[f0] = self.xs[x1] as f32;
+        self.update_flags_float(self.fs[f0]);
+    }
+
+    fn transmute_int_float(&mut self, x0: usize, f1: usize) {
+        self.xs[x0] = self.fs[f1].to_bits();
+        self.update_flags_int(self.xs[x0]);
+    }
+
+    fn transmute_float_int(&mut self, f0: usize, x1: usize) {
+        self.fs[f0] = f32::from_bits(self.xs[x1]);
+        self.update_flags_float(self.fs[f0]);
+    }
+
+    fn exec(&mut self) -> Result<u8, InvalidMemoryAccess> {
+        self.check_memory(self.pc)?;
+        let res = self.addressing.read(self.pc);
+        self.pc += 1;
+        Ok(res)
+    }
+
     fn read(&mut self, addr: u32) -> Result<u8, InvalidMemoryAccess> {
         self.check_memory(addr)?;
         Ok(self.addressing.read(addr))
@@ -322,12 +379,20 @@ where T: Address
 
             // 0b01xxyyyy -> one register argument
             0x40 => {
+                let data = opcode as usize & 0x0f;
+                match opcode & 0x30 {
+                    0x00 => self.inc(data),
+                    0x10 => self.dec(data),
+                    0x20 => (),
+                    0x30 => (),
+
+                    _ => ()
+                }
             }
 
             // 0b10xxxxxx 0byyyyzzzz -> two register arguments
             0x80 => {
-                let data = self.read(self.pc)?;
-                self.pc += 1;
+                let data = self.exec()?;
                 let (fst, snd) = (((data & 0xf0) >> 4) as usize, (data & 0x0f) as usize);
 
                 match opcode & 0x3f {
@@ -351,6 +416,16 @@ where T: Address
                     0x0c => self.or(fst, snd),
                     0x0d => self.xor(fst, snd),
 
+                    // Move and transmute operations
+                    0x0e => self.move_int(fst, snd),
+                    0x0f => self.move_float(fst, snd),
+                    0x10 => self.move_int_float(fst, snd),
+                    0x11 => self.move_float_int(fst, snd),
+                    0x12 => self.transmute_int_float(fst, snd),
+                    0x13 => self.transmute_float_int(fst, snd),
+
+                    // Load
+
                     _ => ()
                 }
             }
@@ -366,8 +441,7 @@ where T: Address
     }
 
     pub fn step(&mut self) -> Result<(), InvalidMemoryAccess> {
-        let opcode = self.read(self.pc)?;
-        self.pc += 1;
+        let opcode = self.exec()?;
         self.decode_instruction(opcode)
     }
 }
