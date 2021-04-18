@@ -18,6 +18,10 @@ first 4 bits set aside for mmu:
 - bit 3 - available
 */
 
+const READ: u8  = 0b100;
+const WRITE: u8 = 0b010;
+const EXEC: u8  = 0b001;
+
 #[derive(Debug)]
 pub struct InvalidMemoryAccess;
 
@@ -69,13 +73,10 @@ pub struct CPU<T>
 where T: Address
 {
     // Registers
-    // Program counter
-    pc: u32,
-
-    // Stack pointer
-    sp: u32,
-
     // General purpose integer registers
+    // Program counter is x13
+    // Stack base pointer is x14
+    // Stack pointer is x15
     xs: [u32; 16],
 
     // General purpose floating point registers
@@ -124,8 +125,6 @@ where T: Address
 {
     pub fn new(t: T) -> CPU<T> {
         CPU {
-            pc: 0,
-            sp: 0,
             xs: [0; 16],
             fs: [0.0; 16],
             flags: 0,
@@ -133,7 +132,7 @@ where T: Address
         }
     }
 
-    fn check_memory(&self, addr: u32) -> Result<u32, InvalidMemoryAccess> {
+    fn check_memory(&self, addr: u32, permissions: u8) -> Result<u32, InvalidMemoryAccess> {
         // TODO: actually do memory mapping stuff
         Ok(addr)
     }
@@ -174,24 +173,36 @@ where T: Address
         self.set_flag(F_TRAP, val);
     }
 
-    fn inc(&mut self, x0: usize) {
-        let res = self.xs[x0] as u64 + 1;
-        clear_flags!(self, F_ZERO, F_CARRY, F_NEGATIVE, F_PARITY);
-        self.set_flag(F_ZERO, res as u32 == 0);
-        self.set_flag(F_NEGATIVE, res & 0x80000000 != 0);
-        self.set_flag(F_CARRY, res & 0x100000000 != 0);
-        self.set_flag(F_PARITY, res & 1 != 0);
-        self.xs[x0] = res as u32;
+    fn load_lit_int(&mut self, x0: usize) -> Result<(), InvalidMemoryAccess> {
+        let data = (self.exec()? as u32) | (self.exec()? as u32) << 1 | (self.exec()? as u32) << 2 | (self.exec()? as u32) << 3;
+        self.xs[x0] = data;
+        self.update_flags_int(data);
+        Ok(())
     }
 
-    fn dec(&mut self, x0: usize) {
-        let res = self.xs[x0] as u64 + 0xffffffff;
-        clear_flags!(self, F_ZERO, F_CARRY, F_NEGATIVE, F_PARITY);
-        self.set_flag(F_ZERO, res as u32 == 0);
-        self.set_flag(F_NEGATIVE, res & 0x80000000 != 0);
-        self.set_flag(F_CARRY, res & 0x100000000 != 0);
-        self.set_flag(F_PARITY, res & 1 != 0);
-        self.xs[x0] = res as u32;
+    fn load_lit_float(&mut self, f0: usize) -> Result<(), InvalidMemoryAccess> {
+        let data = (self.exec()? as u32) | (self.exec()? as u32) << 1 | (self.exec()? as u32) << 2 | (self.exec()? as u32) << 3;
+        let data = f32::from_bits(data);
+        self.fs[f0] = data;
+        self.update_flags_float(data);
+        Ok(())
+    }
+
+    fn load_int(&mut self, x0: usize) -> Result<(), InvalidMemoryAccess> {
+        let addr = (self.exec()? as u32) | (self.exec()? as u32) << 1 | (self.exec()? as u32) << 2 | (self.exec()? as u32) << 3;
+        let data = (self.read(addr)? as u32) | (self.read(addr + 1)? as u32) << 1 | (self.read(addr + 2)? as u32) << 2 | (self.read(addr + 3)? as u32) << 3;
+        self.xs[x0] = data;
+        self.update_flags_int(data);
+        Ok(())
+    }
+
+    fn load_float(&mut self, f0: usize) -> Result<(), InvalidMemoryAccess> {
+        let addr = (self.exec()? as u32) | (self.exec()? as u32) << 1 | (self.exec()? as u32) << 2 | (self.exec()? as u32) << 3;
+        let data = (self.read(addr)? as u32) | (self.read(addr + 1)? as u32) << 1 | (self.read(addr + 2)? as u32) << 2 | (self.read(addr + 3)? as u32) << 3;
+        let data = f32::from_bits(data);
+        self.fs[f0] = data;
+        self.update_flags_float(data);
+        Ok(())
     }
 
     fn iadd(&mut self, x0: usize, x1: usize) {
@@ -340,20 +351,37 @@ where T: Address
         self.update_flags_float(self.fs[f0]);
     }
 
+    fn load_indirect_int(&mut self, x0: usize, addr: usize) -> Result<(), InvalidMemoryAccess> {
+        let addr = addr as u32;
+        let data = (self.read(addr)? as u32) | (self.read(addr + 1)? as u32) << 1 | (self.read(addr + 2)? as u32) << 2 | (self.read(addr + 3)? as u32) << 3;
+        self.xs[x0] = data;
+        self.update_flags_int(data);
+        Ok(())
+    }
+
+    fn load_indirect_float(&mut self, f0: usize, addr: usize) -> Result<(), InvalidMemoryAccess> {
+        let addr = addr as u32;
+        let data = (self.read(addr)? as u32) | (self.read(addr + 1)? as u32) << 1 | (self.read(addr + 2)? as u32) << 2 | (self.read(addr + 3)? as u32) << 3;
+        let data = f32::from_bits(data);
+        self.fs[f0] = data;
+        self.update_flags_float(data);
+        Ok(())
+    }
+
     fn exec(&mut self) -> Result<u8, InvalidMemoryAccess> {
-        self.check_memory(self.pc)?;
-        let res = self.addressing.read(self.pc);
-        self.pc += 1;
+        self.check_memory(self.xs[13], EXEC)?;
+        let res = self.addressing.read(self.xs[13]);
+        self.xs[13] += 1;
         Ok(res)
     }
 
     fn read(&mut self, addr: u32) -> Result<u8, InvalidMemoryAccess> {
-        self.check_memory(addr)?;
+        self.check_memory(addr, READ)?;
         Ok(self.addressing.read(addr))
     }
 
     fn write(&mut self, addr: u32, data: u8) -> Result<(), InvalidMemoryAccess> {
-        self.check_memory(addr)?;
+        self.check_memory(addr, WRITE)?;
         self.addressing.write(addr, data);
         Ok(())
     }
@@ -377,16 +405,19 @@ where T: Address
                 }
             }
 
-            // 0b01xxyyyy -> one register argument
+            // 0b01xxyyyy data -> one register argument and 32 bit data
             0x40 => {
                 let data = opcode as usize & 0x0f;
                 match opcode & 0x30 {
-                    0x00 => self.inc(data),
-                    0x10 => self.dec(data),
-                    0x20 => (),
-                    0x30 => (),
+                    // Load literal
+                    0x00 => self.load_lit_int(data)?,
+                    0x10 => self.load_lit_float(data)?,
 
-                    _ => ()
+                    // Load memory address
+                    0x20 => self.load_int(data)?,
+                    0x30 => self.load_float(data)?,
+
+                    _ => unreachable!("nya :(")
                 }
             }
 
@@ -424,7 +455,9 @@ where T: Address
                     0x12 => self.transmute_int_float(fst, snd),
                     0x13 => self.transmute_float_int(fst, snd),
 
-                    // Load
+                    // Load operations
+                    0x14 => self.load_indirect_int(fst, snd)?,
+                    0x15 => self.load_indirect_float(fst, snd)?,
 
                     _ => ()
                 }
@@ -432,6 +465,7 @@ where T: Address
 
             // 0b11xxxxxx args -> miscellaneous arguments
             0xc0 => {
+                // Load from address
             }
 
             _ => unreachable!("nya :(")
