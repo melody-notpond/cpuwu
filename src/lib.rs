@@ -103,6 +103,7 @@ where T: Address
     addressing: T,
 }
 
+// Flags
 static F_ZERO: u32 = 11;
 static F_OVERFLOW: u32 = 12;
 static F_CARRY: u32 = 13;
@@ -113,6 +114,11 @@ static F_INFINITE: u32 = 17;
 static F_USER_RING: u32 = 18;
 static F_MEMMAP_ENABLE: u32 = 19;
 static F_TRAP: u32 = 20;
+
+// Registers
+static R_PC: usize = 13;
+static R_BASE: usize = 14;
+static R_SP: usize = 15;
 
 macro_rules! clear_flags {
     ($self: ident, $($flags: ident),*) => {
@@ -174,14 +180,14 @@ where T: Address
     }
 
     fn load_lit_int(&mut self, x0: usize) -> Result<(), InvalidMemoryAccess> {
-        let data = (self.exec()? as u32) | (self.exec()? as u32) << 1 | (self.exec()? as u32) << 2 | (self.exec()? as u32) << 3;
+        let data = (self.exec()? as u32) | (self.exec()? as u32) << 8 | (self.exec()? as u32) << 16 | (self.exec()? as u32) << 24;
         self.xs[x0] = data;
         self.update_flags_int(data);
         Ok(())
     }
 
     fn load_lit_float(&mut self, f0: usize) -> Result<(), InvalidMemoryAccess> {
-        let data = (self.exec()? as u32) | (self.exec()? as u32) << 1 | (self.exec()? as u32) << 2 | (self.exec()? as u32) << 3;
+        let data = (self.exec()? as u32) | (self.exec()? as u32) << 8 | (self.exec()? as u32) << 16 | (self.exec()? as u32) << 24;
         let data = f32::from_bits(data);
         self.fs[f0] = data;
         self.update_flags_float(data);
@@ -189,16 +195,16 @@ where T: Address
     }
 
     fn load_int(&mut self, x0: usize) -> Result<(), InvalidMemoryAccess> {
-        let addr = (self.exec()? as u32) | (self.exec()? as u32) << 1 | (self.exec()? as u32) << 2 | (self.exec()? as u32) << 3;
-        let data = (self.read(addr)? as u32) | (self.read(addr + 1)? as u32) << 1 | (self.read(addr + 2)? as u32) << 2 | (self.read(addr + 3)? as u32) << 3;
+        let addr = (self.exec()? as u32) | (self.exec()? as u32) << 8 | (self.exec()? as u32) << 16 | (self.exec()? as u32) << 24;
+        let data = (self.read(addr)? as u32) | (self.read(addr + 1)? as u32) << 8 | (self.read(addr + 2)? as u32) << 16 | (self.read(addr + 3)? as u32) << 24;
         self.xs[x0] = data;
         self.update_flags_int(data);
         Ok(())
     }
 
     fn load_float(&mut self, f0: usize) -> Result<(), InvalidMemoryAccess> {
-        let addr = (self.exec()? as u32) | (self.exec()? as u32) << 1 | (self.exec()? as u32) << 2 | (self.exec()? as u32) << 3;
-        let data = (self.read(addr)? as u32) | (self.read(addr + 1)? as u32) << 1 | (self.read(addr + 2)? as u32) << 2 | (self.read(addr + 3)? as u32) << 3;
+        let addr = (self.exec()? as u32) | (self.exec()? as u32) << 8 | (self.exec()? as u32) << 16 | (self.exec()? as u32) << 24;
+        let data = (self.read(addr)? as u32) | (self.read(addr + 1)? as u32) << 8 | (self.read(addr + 2)? as u32) << 16 | (self.read(addr + 3)? as u32) << 24;
         let data = f32::from_bits(data);
         self.fs[f0] = data;
         self.update_flags_float(data);
@@ -425,9 +431,9 @@ where T: Address
     }
 
     fn exec(&mut self) -> Result<u8, InvalidMemoryAccess> {
-        self.check_memory(self.xs[13], EXEC)?;
-        let res = self.addressing.read(self.xs[13]);
-        self.xs[13] += 1;
+        self.check_memory(self.xs[R_PC], EXEC)?;
+        let res = self.addressing.read(self.xs[R_PC]);
+        self.xs[R_PC] += 1;
         Ok(res)
     }
 
@@ -612,6 +618,76 @@ mod tests {
         cpu.bsl(0, 1);
         assert_eq!(cpu.xs[0], 0xfffffffe);
         assert!(cpu.get_flag(F_CARRY));
+    }
+
+    #[test]
+    fn cpu_load_int() {
+        let mut cpu = CPU::new(SimpleAddress::default());
+
+        // Set up memory
+        cpu.addressing.memory[0xff00] = 0xd0;
+        cpu.addressing.memory[0xff01] = 0xc0;
+        cpu.addressing.memory[0xff02] = 0xb0;
+        cpu.addressing.memory[0xff03] = 0xa0;
+
+        // Load literal
+        cpu.xs[R_PC] = 0xff00;
+        let _ = cpu.load_lit_int(0);
+        assert_eq!(cpu.xs[0], 0xa0b0c0d0);
+
+
+        // Set up memory
+        cpu.addressing.memory[0x0000] = 0x00;
+        cpu.addressing.memory[0x0001] = 0xff;
+        cpu.addressing.memory[0x0002] = 0x00;
+        cpu.addressing.memory[0x0003] = 0x00;
+
+        // Simple addressing
+        cpu.xs[R_PC] = 0x00;
+        let _ = cpu.load_int(1);
+        assert_eq!(cpu.xs[1], 0xa0b0c0d0);
+
+        // Indirect addressing
+        cpu.xs[1] = 0xff00;
+        cpu.xs[0] = 0x00;
+        let _ = cpu.load_indirect_int(0, 1);
+        assert_eq!(cpu.xs[0], 0xa0b0c0d0);
+    }
+
+    #[test]
+    #[allow(clippy::clippy::float_cmp)]
+    fn cpu_load_float() {
+        let mut cpu = CPU::new(SimpleAddress::default());
+
+        // Set up memory
+        let data = 0.618f32.to_bits();
+        cpu.addressing.memory[0xff00] = data as u8;
+        cpu.addressing.memory[0xff01] = (data >> 8) as u8;
+        cpu.addressing.memory[0xff02] = (data >> 16) as u8;
+        cpu.addressing.memory[0xff03] = (data >> 24) as u8;
+
+        // Load literal
+        cpu.xs[R_PC] = 0xff00;
+        let _ = cpu.load_lit_float(0);
+        assert_eq!(cpu.fs[0], 0.618);
+
+
+        // Set up memory
+        cpu.addressing.memory[0x0000] = 0x00;
+        cpu.addressing.memory[0x0001] = 0xff;
+        cpu.addressing.memory[0x0002] = 0x00;
+        cpu.addressing.memory[0x0003] = 0x00;
+
+        // Simple addressing
+        cpu.xs[R_PC] = 0x00;
+        let _ = cpu.load_float(1);
+        assert_eq!(cpu.fs[1], 0.618);
+
+        // Indirect addressing
+        cpu.xs[1] = 0xff00;
+        cpu.xs[0] = 0x00;
+        let _ = cpu.load_indirect_float(0, 1);
+        assert_eq!(cpu.fs[0], 0.618);
     }
 }
 
