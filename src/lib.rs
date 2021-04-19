@@ -465,7 +465,6 @@ where T: Address
 
             // 0b11xxxxxx args -> miscellaneous arguments
             0xc0 => {
-                // Load from address
             }
 
             _ => unreachable!("nya :(")
