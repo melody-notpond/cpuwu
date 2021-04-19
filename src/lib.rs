@@ -377,15 +377,15 @@ where T: Address
     fn store_indirect_int(&mut self, x0: usize, addr: usize) -> Result<(), InvalidMemoryAccess> {
         let addr = self.xs[addr];
         self.write(addr, self.xs[x0] as u8)?;
-        self.write(addr, (self.xs[x0] >> 8) as u8)?;
-        self.write(addr, (self.xs[x0] >> 16) as u8)?;
-        self.write(addr, (self.xs[x0] >> 24) as u8)
+        self.write(addr + 1, (self.xs[x0] >> 8) as u8)?;
+        self.write(addr + 2, (self.xs[x0] >> 16) as u8)?;
+        self.write(addr + 3, (self.xs[x0] >> 24) as u8)
     }
 
     fn store_indirect_short(&mut self, x0: usize, addr: usize) -> Result<(), InvalidMemoryAccess> {
         let addr = self.xs[addr];
         self.write(addr, self.xs[x0] as u8)?;
-        self.write(addr, (self.xs[x0] >> 8) as u8)
+        self.write(addr + 1, (self.xs[x0] >> 8) as u8)
     }
 
     fn store_indirect_byte(&mut self, x0: usize, addr: usize) -> Result<(), InvalidMemoryAccess> {
@@ -397,37 +397,37 @@ where T: Address
         let addr = self.xs[addr];
         let data = self.fs[f0].to_bits();
         self.write(addr, data as u8)?;
-        self.write(addr, (data >> 8) as u8)?;
-        self.write(addr, (data >> 16) as u8)?;
-        self.write(addr, (data >> 24) as u8)
+        self.write(addr + 1, (data >> 8) as u8)?;
+        self.write(addr + 2, (data >> 16) as u8)?;
+        self.write(addr + 3, (data >> 24) as u8)
     }
 
     fn store_int(&mut self, x0: usize) -> Result<(), InvalidMemoryAccess> {
-        let addr = (self.exec()? as u32) | (self.exec()? as u32) << 1 | (self.exec()? as u32) << 2 | (self.exec()? as u32) << 3;
+        let addr = (self.exec()? as u32) | (self.exec()? as u32) << 8 | (self.exec()? as u32) << 16 | (self.exec()? as u32) << 24;
         self.write(addr, self.xs[x0] as u8)?;
-        self.write(addr, (self.xs[x0] >> 8) as u8)?;
-        self.write(addr, (self.xs[x0] >> 16) as u8)?;
-        self.write(addr, (self.xs[x0] >> 24) as u8)
+        self.write(addr + 1, (self.xs[x0] >> 8) as u8)?;
+        self.write(addr + 2, (self.xs[x0] >> 16) as u8)?;
+        self.write(addr + 3, (self.xs[x0] >> 24) as u8)
     }
 
     fn store_short(&mut self, x0: usize) -> Result<(), InvalidMemoryAccess> {
-        let addr = (self.exec()? as u32) | (self.exec()? as u32) << 1 | (self.exec()? as u32) << 2 | (self.exec()? as u32) << 3;
+        let addr = (self.exec()? as u32) | (self.exec()? as u32) << 8 | (self.exec()? as u32) << 16 | (self.exec()? as u32) << 24;
         self.write(addr, self.xs[x0] as u8)?;
-        self.write(addr, (self.xs[x0] >> 8) as u8)
+        self.write(addr + 1, (self.xs[x0] >> 8) as u8)
     }
 
     fn store_byte(&mut self, x0: usize) -> Result<(), InvalidMemoryAccess> {
-        let addr = (self.exec()? as u32) | (self.exec()? as u32) << 1 | (self.exec()? as u32) << 2 | (self.exec()? as u32) << 3;
+        let addr = (self.exec()? as u32) | (self.exec()? as u32) << 8 | (self.exec()? as u32) << 16 | (self.exec()? as u32) << 24;
         self.write(addr, self.xs[x0] as u8)
     }
 
     fn store_float(&mut self, f0: usize) -> Result<(), InvalidMemoryAccess> {
-        let addr = (self.exec()? as u32) | (self.exec()? as u32) << 1 | (self.exec()? as u32) << 2 | (self.exec()? as u32) << 3;
+        let addr = (self.exec()? as u32) | (self.exec()? as u32) << 8 | (self.exec()? as u32) << 16 | (self.exec()? as u32) << 24;
         let data = self.fs[f0].to_bits();
         self.write(addr, data as u8)?;
-        self.write(addr, (data >> 8) as u8)?;
-        self.write(addr, (data >> 16) as u8)?;
-        self.write(addr, (data >> 24) as u8)
+        self.write(addr + 1, (data >> 8) as u8)?;
+        self.write(addr + 2, (data >> 16) as u8)?;
+        self.write(addr + 3, (data >> 24) as u8)
     }
 
     fn exec(&mut self) -> Result<u8, InvalidMemoryAccess> {
@@ -688,6 +688,109 @@ mod tests {
         cpu.xs[0] = 0x00;
         let _ = cpu.load_indirect_float(0, 1);
         assert_eq!(cpu.fs[0], 0.618);
+    }
+
+    #[test]
+    fn cpu_store_int() {
+        let mut cpu = CPU::new(SimpleAddress::default());
+
+        // Set up memory
+        cpu.xs[0] = 0xa0b0c0d0;
+        cpu.addressing.memory[0x0000] = 0x00;
+        cpu.addressing.memory[0x0001] = 0xff;
+        cpu.addressing.memory[0x0002] = 0x00;
+        cpu.addressing.memory[0x0003] = 0x00;
+        cpu.xs[R_PC] = 0x0000;
+
+        // Simple addressing
+        let _ = cpu.store_int(0);
+        assert_eq!(cpu.addressing.memory[0xff00], 0xd0);
+        assert_eq!(cpu.addressing.memory[0xff01], 0xc0);
+        assert_eq!(cpu.addressing.memory[0xff02], 0xb0);
+        assert_eq!(cpu.addressing.memory[0xff03], 0xa0);
+
+        // Indirect addressing
+        cpu.xs[1] = 0xfe00;
+        let _ = cpu.store_indirect_int(0, 1);
+        assert_eq!(cpu.addressing.memory[0xfe00], 0xd0);
+        assert_eq!(cpu.addressing.memory[0xfe01], 0xc0);
+        assert_eq!(cpu.addressing.memory[0xfe02], 0xb0);
+        assert_eq!(cpu.addressing.memory[0xfe03], 0xa0);
+    }
+
+    #[test]
+    fn cpu_store_short() {
+        let mut cpu = CPU::new(SimpleAddress::default());
+
+        // Set up memory
+        cpu.xs[0] = 0xa0b0;
+        cpu.addressing.memory[0x0000] = 0x00;
+        cpu.addressing.memory[0x0001] = 0xff;
+        cpu.addressing.memory[0x0002] = 0x00;
+        cpu.addressing.memory[0x0003] = 0x00;
+        cpu.xs[R_PC] = 0x0000;
+
+        // Simple addressing
+        let _ = cpu.store_short(0);
+        assert_eq!(cpu.addressing.memory[0xff00], 0xb0);
+        assert_eq!(cpu.addressing.memory[0xff01], 0xa0);
+
+        // Indirect addressing
+        cpu.xs[1] = 0xfe00;
+        let _ = cpu.store_indirect_short(0, 1);
+        assert_eq!(cpu.addressing.memory[0xfe00], 0xb0);
+        assert_eq!(cpu.addressing.memory[0xfe01], 0xa0);
+    }
+
+    #[test]
+    fn cpu_store_byte() {
+        let mut cpu = CPU::new(SimpleAddress::default());
+
+        // Set up memory
+        cpu.xs[0] = 0xa0;
+        cpu.addressing.memory[0x0000] = 0x00;
+        cpu.addressing.memory[0x0001] = 0xff;
+        cpu.addressing.memory[0x0002] = 0x00;
+        cpu.addressing.memory[0x0003] = 0x00;
+        cpu.xs[R_PC] = 0x0000;
+
+        // Simple addressing
+        let _ = cpu.store_byte(0);
+        assert_eq!(cpu.addressing.memory[0xff00], 0xa0);
+
+        // Indirect addressing
+        cpu.xs[1] = 0xfe00;
+        let _ = cpu.store_indirect_int(0, 1);
+        assert_eq!(cpu.addressing.memory[0xfe00], 0xa0);
+    }
+
+    #[test]
+    fn cpu_store_float() {
+        let mut cpu = CPU::new(SimpleAddress::default());
+
+        // Set up memory
+        cpu.fs[0] = 0.618;
+        cpu.addressing.memory[0x0000] = 0x00;
+        cpu.addressing.memory[0x0001] = 0xff;
+        cpu.addressing.memory[0x0002] = 0x00;
+        cpu.addressing.memory[0x0003] = 0x00;
+        cpu.xs[R_PC] = 0x0000;
+
+        // Simple addressing
+        let _ = cpu.store_float(0);
+        // 0x3f1e353f
+        assert_eq!(cpu.addressing.memory[0xff00], 0x3f);
+        assert_eq!(cpu.addressing.memory[0xff01], 0x35);
+        assert_eq!(cpu.addressing.memory[0xff02], 0x1e);
+        assert_eq!(cpu.addressing.memory[0xff03], 0x3f);
+
+        // Indirect addressing
+        cpu.xs[1] = 0xfe00;
+        let _ = cpu.store_indirect_float(0, 1);
+        assert_eq!(cpu.addressing.memory[0xfe00], 0x3f);
+        assert_eq!(cpu.addressing.memory[0xfe01], 0x35);
+        assert_eq!(cpu.addressing.memory[0xfe02], 0x1e);
+        assert_eq!(cpu.addressing.memory[0xfe03], 0x3f);
     }
 }
 
