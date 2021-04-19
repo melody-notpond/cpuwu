@@ -15,9 +15,9 @@ first 4 bits set aside for mmu:
 - bit 3 - available
 */
 
-const READ: u8  = 0b100;
+const READ: u8 = 0b100;
 const WRITE: u8 = 0b010;
-const EXEC: u8  = 0b001;
+const EXEC: u8 = 0b001;
 
 #[derive(Debug)]
 pub struct InvalidMemoryAccess;
@@ -28,7 +28,7 @@ impl std::fmt::Display for InvalidMemoryAccess {
     }
 }
 
-impl std::error::Error for InvalidMemoryAccess { }
+impl std::error::Error for InvalidMemoryAccess {}
 
 pub trait Address {
     fn read(&mut self, addr: u32) -> u8;
@@ -67,7 +67,8 @@ impl Address for SimpleAddress {
 }
 
 pub struct CPU<T>
-where T: Address
+where
+    T: Address,
 {
     // Registers
     // General purpose integer registers
@@ -80,7 +81,7 @@ where T: Address
     fs: [f32; 16],
 
     // Flags
-    // IIIIIIII LLLZVCNP AFRMT
+    // IIIIIIII LLLZVCNP AFRM
     //            111111 11112222 22222233
     // 01234567 89012345 67890123 45678901
     // IIIIIIII - Interrupt mask
@@ -122,7 +123,8 @@ macro_rules! clear_flags {
 }
 
 impl<T> CPU<T>
-where T: Address
+where
+    T: Address,
 {
     pub fn new(t: T) -> CPU<T> {
         CPU {
@@ -169,14 +171,11 @@ where T: Address
         }
     }
 
-    fn jump(&mut self) -> Result<(), InvalidMemoryAccess> {
-        let addr = (self.exec()? as u32) | (self.exec()? as u32) << 8 | (self.exec()? as u32) << 16 | (self.exec()? as u32) << 24;
-        self.xs[R_PC] = addr;
-        Ok(())
-    }
-
     fn branch_true(&mut self, flag: u32) -> Result<(), InvalidMemoryAccess> {
-        let addr = (self.exec()? as u32) | (self.exec()? as u32) << 8 | (self.exec()? as u32) << 16 | (self.exec()? as u32) << 24;
+        let addr = (self.exec()? as u32)
+            | (self.exec()? as u32) << 8
+            | (self.exec()? as u32) << 16
+            | (self.exec()? as u32) << 24;
         if self.flags & (1 << flag) != 0 {
             self.xs[R_PC] = addr;
         }
@@ -184,23 +183,31 @@ where T: Address
     }
 
     fn branch_false(&mut self, flag: u32) -> Result<(), InvalidMemoryAccess> {
-        let addr = (self.exec()? as u32) | (self.exec()? as u32) << 8 | (self.exec()? as u32) << 16 | (self.exec()? as u32) << 24;
+        let addr = (self.exec()? as u32)
+            | (self.exec()? as u32) << 8
+            | (self.exec()? as u32) << 16
+            | (self.exec()? as u32) << 24;
         if self.flags & (1 << flag) == 0 {
             self.xs[R_PC] = addr;
         }
         Ok(())
     }
 
-
     fn load_lit_int(&mut self, x0: usize) -> Result<(), InvalidMemoryAccess> {
-        let data = (self.exec()? as u32) | (self.exec()? as u32) << 8 | (self.exec()? as u32) << 16 | (self.exec()? as u32) << 24;
+        let data = (self.exec()? as u32)
+            | (self.exec()? as u32) << 8
+            | (self.exec()? as u32) << 16
+            | (self.exec()? as u32) << 24;
         self.xs[x0] = data;
         self.update_flags_int(data);
         Ok(())
     }
 
     fn load_lit_float(&mut self, f0: usize) -> Result<(), InvalidMemoryAccess> {
-        let data = (self.exec()? as u32) | (self.exec()? as u32) << 8 | (self.exec()? as u32) << 16 | (self.exec()? as u32) << 24;
+        let data = (self.exec()? as u32)
+            | (self.exec()? as u32) << 8
+            | (self.exec()? as u32) << 16
+            | (self.exec()? as u32) << 24;
         let data = f32::from_bits(data);
         self.fs[f0] = data;
         self.update_flags_float(data);
@@ -208,16 +215,28 @@ where T: Address
     }
 
     fn load_int(&mut self, x0: usize) -> Result<(), InvalidMemoryAccess> {
-        let addr = (self.exec()? as u32) | (self.exec()? as u32) << 8 | (self.exec()? as u32) << 16 | (self.exec()? as u32) << 24;
-        let data = (self.read(addr)? as u32) | (self.read(addr + 1)? as u32) << 8 | (self.read(addr + 2)? as u32) << 16 | (self.read(addr + 3)? as u32) << 24;
+        let addr = (self.exec()? as u32)
+            | (self.exec()? as u32) << 8
+            | (self.exec()? as u32) << 16
+            | (self.exec()? as u32) << 24;
+        let data = (self.read(addr)? as u32)
+            | (self.read(addr + 1)? as u32) << 8
+            | (self.read(addr + 2)? as u32) << 16
+            | (self.read(addr + 3)? as u32) << 24;
         self.xs[x0] = data;
         self.update_flags_int(data);
         Ok(())
     }
 
     fn load_float(&mut self, f0: usize) -> Result<(), InvalidMemoryAccess> {
-        let addr = (self.exec()? as u32) | (self.exec()? as u32) << 8 | (self.exec()? as u32) << 16 | (self.exec()? as u32) << 24;
-        let data = (self.read(addr)? as u32) | (self.read(addr + 1)? as u32) << 8 | (self.read(addr + 2)? as u32) << 16 | (self.read(addr + 3)? as u32) << 24;
+        let addr = (self.exec()? as u32)
+            | (self.exec()? as u32) << 8
+            | (self.exec()? as u32) << 16
+            | (self.exec()? as u32) << 24;
+        let data = (self.read(addr)? as u32)
+            | (self.read(addr + 1)? as u32) << 8
+            | (self.read(addr + 2)? as u32) << 16
+            | (self.read(addr + 3)? as u32) << 24;
         let data = f32::from_bits(data);
         self.fs[f0] = data;
         self.update_flags_float(data);
@@ -230,7 +249,11 @@ where T: Address
         self.set_flag(F_ZERO, res as u32 == 0);
         self.set_flag(F_NEGATIVE, res & 0x80000000 != 0);
         self.set_flag(F_CARRY, res & 0x100000000 != 0);
-        self.set_flag(F_OVERFLOW, self.xs[x0] & 0x80000000 == self.xs[x1] & 0x80000000 && self.xs[x0] & 0x80000000 != res as u32 & 0x80000000);
+        self.set_flag(
+            F_OVERFLOW,
+            self.xs[x0] & 0x80000000 == self.xs[x1] & 0x80000000
+                && self.xs[x0] & 0x80000000 != res as u32 & 0x80000000,
+        );
         self.set_flag(F_PARITY, res & 1 != 0);
         self.xs[x0] = res as u32;
     }
@@ -372,7 +395,10 @@ where T: Address
 
     fn load_indirect_int(&mut self, x0: usize, addr: usize) -> Result<(), InvalidMemoryAccess> {
         let addr = self.xs[addr];
-        let data = (self.read(addr)? as u32) | (self.read(addr + 1)? as u32) << 8 | (self.read(addr + 2)? as u32) << 16 | (self.read(addr + 3)? as u32) << 24;
+        let data = (self.read(addr)? as u32)
+            | (self.read(addr + 1)? as u32) << 8
+            | (self.read(addr + 2)? as u32) << 16
+            | (self.read(addr + 3)? as u32) << 24;
         self.xs[x0] = data;
         self.update_flags_int(data);
         Ok(())
@@ -380,7 +406,10 @@ where T: Address
 
     fn load_indirect_float(&mut self, f0: usize, addr: usize) -> Result<(), InvalidMemoryAccess> {
         let addr = self.xs[addr];
-        let data = (self.read(addr)? as u32) | (self.read(addr + 1)? as u32) << 8 | (self.read(addr + 2)? as u32) << 16 | (self.read(addr + 3)? as u32) << 24;
+        let data = (self.read(addr)? as u32)
+            | (self.read(addr + 1)? as u32) << 8
+            | (self.read(addr + 2)? as u32) << 16
+            | (self.read(addr + 3)? as u32) << 24;
         let data = f32::from_bits(data);
         self.fs[f0] = data;
         self.update_flags_float(data);
@@ -416,7 +445,10 @@ where T: Address
     }
 
     fn store_int(&mut self, x0: usize) -> Result<(), InvalidMemoryAccess> {
-        let addr = (self.exec()? as u32) | (self.exec()? as u32) << 8 | (self.exec()? as u32) << 16 | (self.exec()? as u32) << 24;
+        let addr = (self.exec()? as u32)
+            | (self.exec()? as u32) << 8
+            | (self.exec()? as u32) << 16
+            | (self.exec()? as u32) << 24;
         self.write(addr, self.xs[x0] as u8)?;
         self.write(addr + 1, (self.xs[x0] >> 8) as u8)?;
         self.write(addr + 2, (self.xs[x0] >> 16) as u8)?;
@@ -424,18 +456,27 @@ where T: Address
     }
 
     fn store_short(&mut self, x0: usize) -> Result<(), InvalidMemoryAccess> {
-        let addr = (self.exec()? as u32) | (self.exec()? as u32) << 8 | (self.exec()? as u32) << 16 | (self.exec()? as u32) << 24;
+        let addr = (self.exec()? as u32)
+            | (self.exec()? as u32) << 8
+            | (self.exec()? as u32) << 16
+            | (self.exec()? as u32) << 24;
         self.write(addr, self.xs[x0] as u8)?;
         self.write(addr + 1, (self.xs[x0] >> 8) as u8)
     }
 
     fn store_byte(&mut self, x0: usize) -> Result<(), InvalidMemoryAccess> {
-        let addr = (self.exec()? as u32) | (self.exec()? as u32) << 8 | (self.exec()? as u32) << 16 | (self.exec()? as u32) << 24;
+        let addr = (self.exec()? as u32)
+            | (self.exec()? as u32) << 8
+            | (self.exec()? as u32) << 16
+            | (self.exec()? as u32) << 24;
         self.write(addr, self.xs[x0] as u8)
     }
 
     fn store_float(&mut self, f0: usize) -> Result<(), InvalidMemoryAccess> {
-        let addr = (self.exec()? as u32) | (self.exec()? as u32) << 8 | (self.exec()? as u32) << 16 | (self.exec()? as u32) << 24;
+        let addr = (self.exec()? as u32)
+            | (self.exec()? as u32) << 8
+            | (self.exec()? as u32) << 16
+            | (self.exec()? as u32) << 24;
         let data = self.fs[f0].to_bits();
         self.write(addr, data as u8)?;
         self.write(addr + 1, (data >> 8) as u8)?;
@@ -474,24 +515,26 @@ where T: Address
                     0x04 => self.set_user_ring(false),
                     0x05 => self.set_user_ring(true),
 
-                    // Jumps and branches
-                    0x08 => self.jump()?,
-                    0x09 => self.branch_true(F_ZERO)?,
-                    0x0a => self.branch_true(F_OVERFLOW)?,
-                    0x0b => self.branch_true(F_CARRY)?,
-                    0x0c => self.branch_true(F_NEGATIVE)?,
-                    0x0d => self.branch_true(F_PARITY)?,
-                    0x0e => self.branch_true(F_NAN)?,
-                    0x0f => self.branch_true(F_INFINITE)?,
-                    0x11 => self.branch_false(F_ZERO)?,
-                    0x12 => self.branch_false(F_OVERFLOW)?,
-                    0x13 => self.branch_false(F_CARRY)?,
-                    0x14 => self.branch_false(F_NEGATIVE)?,
-                    0x15 => self.branch_false(F_PARITY)?,
-                    0x16 => self.branch_false(F_NAN)?,
-                    0x17 => self.branch_false(F_INFINITE)?,
+                    // Branches
+                    // Jumping is just mov x13, addr
+                    0x08 => self.branch_true(F_ZERO)?,
+                    0x09 => self.branch_true(F_OVERFLOW)?,
+                    0x0a => self.branch_true(F_CARRY)?,
+                    0x0b => self.branch_true(F_NEGATIVE)?,
+                    0x0c => self.branch_true(F_PARITY)?,
+                    0x0d => self.branch_true(F_NAN)?,
+                    0x0e => self.branch_true(F_INFINITE)?,
+                    0x0f => self.branch_true(F_MEMMAP_ENABLE)?,
+                    0x10 => self.branch_false(F_ZERO)?,
+                    0x11 => self.branch_false(F_OVERFLOW)?,
+                    0x12 => self.branch_false(F_CARRY)?,
+                    0x13 => self.branch_false(F_NEGATIVE)?,
+                    0x14 => self.branch_false(F_PARITY)?,
+                    0x15 => self.branch_false(F_NAN)?,
+                    0x16 => self.branch_false(F_INFINITE)?,
+                    0x17 => self.branch_false(F_MEMMAP_ENABLE)?,
 
-                    _ => ()
+                    _ => (),
                 }
             }
 
@@ -507,7 +550,7 @@ where T: Address
                     0x20 => self.load_int(data)?,
                     0x30 => self.load_float(data)?,
 
-                    _ => unreachable!("nya :(")
+                    _ => unreachable!("nya :("),
                 }
             }
 
@@ -555,7 +598,7 @@ where T: Address
                     0x18 => self.store_indirect_byte(fst, snd)?,
                     0x19 => self.store_indirect_float(fst, snd)?,
 
-                    _ => ()
+                    _ => (),
                 }
             }
 
@@ -569,11 +612,11 @@ where T: Address
                     0x20 => self.store_byte(data)?,
                     0x30 => self.store_float(data)?,
 
-                    _ => unreachable!("nya :(")
+                    _ => unreachable!("nya :("),
                 }
             }
 
-            _ => unreachable!("nya :(")
+            _ => unreachable!("nya :("),
         }
 
         Ok(())
@@ -663,7 +706,6 @@ mod tests {
         let _ = cpu.load_lit_int(0);
         assert_eq!(cpu.xs[0], 0xa0b0c0d0);
 
-
         // Set up memory
         cpu.addressing.memory[0x0000] = 0x00;
         cpu.addressing.memory[0x0001] = 0xff;
@@ -698,7 +740,6 @@ mod tests {
         cpu.xs[R_PC] = 0xff00;
         let _ = cpu.load_lit_float(0);
         assert_eq!(cpu.fs[0], 0.618);
-
 
         // Set up memory
         cpu.addressing.memory[0x0000] = 0x00;
@@ -821,4 +862,3 @@ mod tests {
         assert_eq!(cpu.addressing.memory[0xfe03], 0x3f);
     }
 }
-
