@@ -172,6 +172,11 @@ where
     }
 
     fn call(&mut self) -> Result<(), InvalidMemoryAccess> {
+        let addr = (self.exec()? as u32)
+            | (self.exec()? as u32) << 8
+            | (self.exec()? as u32) << 16
+            | (self.exec()? as u32) << 24;
+
         let mut data = self.xs[R_BASE];
         for _ in 0..4 {
             self.write(self.xs[R_SP], data as u8)?;
@@ -187,11 +192,6 @@ where
         }
 
         self.xs[R_BASE] = self.xs[R_SP];
-
-        let addr = (self.exec()? as u32)
-            | (self.exec()? as u32) << 8
-            | (self.exec()? as u32) << 16
-            | (self.exec()? as u32) << 24;
         self.xs[R_PC] = addr;
         Ok(())
     }
@@ -199,16 +199,16 @@ where
     fn ret(&mut self) -> Result<(), InvalidMemoryAccess> {
         self.xs[R_PC] = 0;
         for _ in 0..4 {
+            self.xs[R_BASE] += 1;
             self.xs[R_PC] <<= 8;
             self.xs[R_PC] |= self.read(self.xs[R_BASE])? as u32;
-            self.xs[R_BASE] += 1;
         }
 
         let mut data = 0;
         for _ in 4..8 {
+            self.xs[R_BASE] += 1;
             data <<= 8;
             data |= self.read(self.xs[R_BASE])? as u32;
-            self.xs[R_SP] += 1;
         }
 
         self.xs[R_SP] = self.xs[R_BASE];
@@ -753,7 +753,7 @@ mod tests {
 
         // Load literal
         cpu.xs[R_PC] = 0xff00;
-        let _ = cpu.load_lit_int(0);
+        cpu.load_lit_int(0).unwrap();
         assert_eq!(cpu.xs[0], 0xa0b0c0d0);
 
         // Set up memory
@@ -764,18 +764,18 @@ mod tests {
 
         // Simple addressing
         cpu.xs[R_PC] = 0x00;
-        let _ = cpu.load_int(1);
+        cpu.load_int(1).unwrap();
         assert_eq!(cpu.xs[1], 0xa0b0c0d0);
 
         // Indirect addressing
         cpu.xs[1] = 0xff00;
         cpu.xs[0] = 0x00;
-        let _ = cpu.load_indirect_int(0, 1);
+        cpu.load_indirect_int(0, 1).unwrap();
         assert_eq!(cpu.xs[0], 0xa0b0c0d0);
     }
 
     #[test]
-    #[allow(clippy::clippy::float_cmp)]
+    #[allow(clippy::float_cmp)]
     fn cpu_load_float() {
         let mut cpu = CPU::new(SimpleAddress::default());
 
@@ -788,7 +788,7 @@ mod tests {
 
         // Load literal
         cpu.xs[R_PC] = 0xff00;
-        let _ = cpu.load_lit_float(0);
+        cpu.load_lit_float(0).unwrap();
         assert_eq!(cpu.fs[0], 0.618);
 
         // Set up memory
@@ -799,13 +799,13 @@ mod tests {
 
         // Simple addressing
         cpu.xs[R_PC] = 0x00;
-        let _ = cpu.load_float(1);
+        cpu.load_float(1).unwrap();
         assert_eq!(cpu.fs[1], 0.618);
 
         // Indirect addressing
         cpu.xs[1] = 0xff00;
         cpu.xs[0] = 0x00;
-        let _ = cpu.load_indirect_float(0, 1);
+        cpu.load_indirect_float(0, 1).unwrap();
         assert_eq!(cpu.fs[0], 0.618);
     }
 
@@ -822,7 +822,7 @@ mod tests {
         cpu.xs[R_PC] = 0x0000;
 
         // Simple addressing
-        let _ = cpu.store_int(0);
+        cpu.store_int(0).unwrap();
         assert_eq!(cpu.addressing.memory[0xff00], 0xd0);
         assert_eq!(cpu.addressing.memory[0xff01], 0xc0);
         assert_eq!(cpu.addressing.memory[0xff02], 0xb0);
@@ -830,7 +830,7 @@ mod tests {
 
         // Indirect addressing
         cpu.xs[1] = 0xfe00;
-        let _ = cpu.store_indirect_int(0, 1);
+        cpu.store_indirect_int(0, 1).unwrap();
         assert_eq!(cpu.addressing.memory[0xfe00], 0xd0);
         assert_eq!(cpu.addressing.memory[0xfe01], 0xc0);
         assert_eq!(cpu.addressing.memory[0xfe02], 0xb0);
@@ -850,13 +850,13 @@ mod tests {
         cpu.xs[R_PC] = 0x0000;
 
         // Simple addressing
-        let _ = cpu.store_short(0);
+        cpu.store_short(0).unwrap();
         assert_eq!(cpu.addressing.memory[0xff00], 0xb0);
         assert_eq!(cpu.addressing.memory[0xff01], 0xa0);
 
         // Indirect addressing
         cpu.xs[1] = 0xfe00;
-        let _ = cpu.store_indirect_short(0, 1);
+        cpu.store_indirect_short(0, 1).unwrap();
         assert_eq!(cpu.addressing.memory[0xfe00], 0xb0);
         assert_eq!(cpu.addressing.memory[0xfe01], 0xa0);
     }
@@ -874,12 +874,12 @@ mod tests {
         cpu.xs[R_PC] = 0x0000;
 
         // Simple addressing
-        let _ = cpu.store_byte(0);
+        cpu.store_byte(0).unwrap();
         assert_eq!(cpu.addressing.memory[0xff00], 0xa0);
 
         // Indirect addressing
         cpu.xs[1] = 0xfe00;
-        let _ = cpu.store_indirect_int(0, 1);
+        cpu.store_indirect_int(0, 1).unwrap();
         assert_eq!(cpu.addressing.memory[0xfe00], 0xa0);
     }
 
@@ -896,7 +896,7 @@ mod tests {
         cpu.xs[R_PC] = 0x0000;
 
         // Simple addressing
-        let _ = cpu.store_float(0);
+        cpu.store_float(0).unwrap();
         // 0x3f1e353f
         assert_eq!(cpu.addressing.memory[0xff00], 0x3f);
         assert_eq!(cpu.addressing.memory[0xff01], 0x35);
@@ -905,10 +905,36 @@ mod tests {
 
         // Indirect addressing
         cpu.xs[1] = 0xfe00;
-        let _ = cpu.store_indirect_float(0, 1);
+        cpu.store_indirect_float(0, 1).unwrap();
         assert_eq!(cpu.addressing.memory[0xfe00], 0x3f);
         assert_eq!(cpu.addressing.memory[0xfe01], 0x35);
         assert_eq!(cpu.addressing.memory[0xfe02], 0x1e);
         assert_eq!(cpu.addressing.memory[0xfe03], 0x3f);
+    }
+
+    #[test]
+    fn cpu_call_ret() {
+        let mut cpu = CPU::new(SimpleAddress::default());
+
+        // Set up registers and memory
+        cpu.xs[R_PC] = 0x1234;
+        cpu.xs[R_BASE] = 0xbfff;
+        cpu.xs[R_SP] = 0xbfc8;
+        cpu.addressing.memory[0x1234] = 0x42;
+        cpu.addressing.memory[0x1235] = 0xaf;
+        cpu.addressing.memory[0x1236] = 0x00;
+        cpu.addressing.memory[0x1237] = 0x00;
+
+        // "Call" the function
+        cpu.call().unwrap();
+        assert_eq!(cpu.xs[R_PC], 0xaf42);
+        assert_eq!(cpu.xs[R_BASE], 0xbfc0);
+
+        // Simulate the stack being used and "return" from the function
+        cpu.xs[R_SP] = 0xbf89;
+        cpu.ret().unwrap();
+        assert_eq!(cpu.xs[R_PC], 0x1238);
+        assert_eq!(cpu.xs[R_BASE], 0xbfff);
+        assert_eq!(cpu.xs[R_SP], 0xbfc8);
     }
 }
