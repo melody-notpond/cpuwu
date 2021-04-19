@@ -171,6 +171,52 @@ where
         }
     }
 
+    fn call(&mut self) -> Result<(), InvalidMemoryAccess> {
+        let mut data = self.xs[R_BASE];
+        for _ in 0..4 {
+            self.write(self.xs[R_SP], data as u8)?;
+            data >>= 8;
+            self.xs[R_SP] -= 1;
+        }
+
+        let mut data = self.xs[R_PC];
+        for _ in 4..8 {
+            self.write(self.xs[R_SP], data as u8)?;
+            data >>= 8;
+            self.xs[R_SP] -= 1;
+        }
+
+        self.xs[R_BASE] = self.xs[R_SP];
+
+        let addr = (self.exec()? as u32)
+            | (self.exec()? as u32) << 8
+            | (self.exec()? as u32) << 16
+            | (self.exec()? as u32) << 24;
+        self.xs[R_PC] = addr;
+        Ok(())
+    }
+
+    fn ret(&mut self) -> Result<(), InvalidMemoryAccess> {
+        self.xs[R_PC] = 0;
+        for _ in 0..4 {
+            self.xs[R_PC] <<= 8;
+            self.xs[R_PC] |= self.read(self.xs[R_BASE])? as u32;
+            self.xs[R_BASE] += 1;
+        }
+
+        let mut data = 0;
+        for _ in 4..8 {
+            data <<= 8;
+            data |= self.read(self.xs[R_BASE])? as u32;
+            self.xs[R_SP] += 1;
+        }
+
+        self.xs[R_SP] = self.xs[R_BASE];
+        self.xs[R_BASE] = data;
+
+        Ok(())
+    }
+
     fn branch_true(&mut self, flag: u32) -> Result<(), InvalidMemoryAccess> {
         let addr = (self.exec()? as u32)
             | (self.exec()? as u32) << 8
@@ -515,8 +561,12 @@ where
                     0x04 => self.set_user_ring(false),
                     0x05 => self.set_user_ring(true),
 
+                    0x06 => self.call()?,
+                    0x07 => self.ret()?,
+
                     // Branches
                     // Jumping is just mov x13, addr
+                    // Takes in 32 bit data as an argument
                     0x08 => self.branch_true(F_ZERO)?,
                     0x09 => self.branch_true(F_OVERFLOW)?,
                     0x0a => self.branch_true(F_CARRY)?,
