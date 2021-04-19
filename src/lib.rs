@@ -1,8 +1,5 @@
 /*
-- load/store instructions
 - memmap instructions (elevate, deelevate)
-- jumps
-- branching
 - calling functions
 - returning from functions
 - returning from interrupts
@@ -97,7 +94,6 @@ where T: Address
     // F        - inFinite
     // R        - user Ring
     // M        - Memory map enable
-    // T        - Trap (for debuggers)
     flags: u32,
 
     addressing: T,
@@ -113,7 +109,6 @@ static F_NAN: u32 = 16;
 static F_INFINITE: u32 = 17;
 static F_USER_RING: u32 = 18;
 static F_MEMMAP_ENABLE: u32 = 19;
-static F_TRAP: u32 = 20;
 
 // Registers
 static R_PC: usize = 13;
@@ -174,10 +169,28 @@ where T: Address
         }
     }
 
-    fn set_trap(&mut self, val: bool) {
-        clear_flags!(self, F_TRAP);
-        self.set_flag(F_TRAP, val);
+    fn jump(&mut self) -> Result<(), InvalidMemoryAccess> {
+        let addr = (self.exec()? as u32) | (self.exec()? as u32) << 8 | (self.exec()? as u32) << 16 | (self.exec()? as u32) << 24;
+        self.xs[R_PC] = addr;
+        Ok(())
     }
+
+    fn branch_true(&mut self, flag: u32) -> Result<(), InvalidMemoryAccess> {
+        let addr = (self.exec()? as u32) | (self.exec()? as u32) << 8 | (self.exec()? as u32) << 16 | (self.exec()? as u32) << 24;
+        if self.flags & (1 << flag) != 0 {
+            self.xs[R_PC] = addr;
+        }
+        Ok(())
+    }
+
+    fn branch_false(&mut self, flag: u32) -> Result<(), InvalidMemoryAccess> {
+        let addr = (self.exec()? as u32) | (self.exec()? as u32) << 8 | (self.exec()? as u32) << 16 | (self.exec()? as u32) << 24;
+        if self.flags & (1 << flag) == 0 {
+            self.xs[R_PC] = addr;
+        }
+        Ok(())
+    }
+
 
     fn load_lit_int(&mut self, x0: usize) -> Result<(), InvalidMemoryAccess> {
         let data = (self.exec()? as u32) | (self.exec()? as u32) << 8 | (self.exec()? as u32) << 16 | (self.exec()? as u32) << 24;
@@ -456,12 +469,27 @@ where T: Address
                     // Setting and clearing flags
                     0x00 => self.set_carry(false),
                     0x01 => self.set_carry(true),
-                    0x02 => self.set_trap(false),
-                    0x03 => self.set_trap(true),
-                    0x04 => self.set_memmap_enable(false),
-                    0x05 => self.set_memmap_enable(true),
-                    0x06 => self.set_user_ring(false),
-                    0x07 => self.set_user_ring(true),
+                    0x02 => self.set_memmap_enable(false),
+                    0x03 => self.set_memmap_enable(true),
+                    0x04 => self.set_user_ring(false),
+                    0x05 => self.set_user_ring(true),
+
+                    // Jumps and branches
+                    0x08 => self.jump()?,
+                    0x09 => self.branch_true(F_ZERO)?,
+                    0x0a => self.branch_true(F_OVERFLOW)?,
+                    0x0b => self.branch_true(F_CARRY)?,
+                    0x0c => self.branch_true(F_NEGATIVE)?,
+                    0x0d => self.branch_true(F_PARITY)?,
+                    0x0e => self.branch_true(F_NAN)?,
+                    0x0f => self.branch_true(F_INFINITE)?,
+                    0x11 => self.branch_false(F_ZERO)?,
+                    0x12 => self.branch_false(F_OVERFLOW)?,
+                    0x13 => self.branch_false(F_CARRY)?,
+                    0x14 => self.branch_false(F_NEGATIVE)?,
+                    0x15 => self.branch_false(F_PARITY)?,
+                    0x16 => self.branch_false(F_NAN)?,
+                    0x17 => self.branch_false(F_INFINITE)?,
 
                     _ => ()
                 }
