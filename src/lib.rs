@@ -352,20 +352,76 @@ where T: Address
     }
 
     fn load_indirect_int(&mut self, x0: usize, addr: usize) -> Result<(), InvalidMemoryAccess> {
-        let addr = addr as u32;
-        let data = (self.read(addr)? as u32) | (self.read(addr + 1)? as u32) << 1 | (self.read(addr + 2)? as u32) << 2 | (self.read(addr + 3)? as u32) << 3;
+        let addr = self.xs[addr];
+        let data = (self.read(addr)? as u32) | (self.read(addr + 1)? as u32) << 8 | (self.read(addr + 2)? as u32) << 16 | (self.read(addr + 3)? as u32) << 24;
         self.xs[x0] = data;
         self.update_flags_int(data);
         Ok(())
     }
 
     fn load_indirect_float(&mut self, f0: usize, addr: usize) -> Result<(), InvalidMemoryAccess> {
-        let addr = addr as u32;
-        let data = (self.read(addr)? as u32) | (self.read(addr + 1)? as u32) << 1 | (self.read(addr + 2)? as u32) << 2 | (self.read(addr + 3)? as u32) << 3;
+        let addr = self.xs[addr];
+        let data = (self.read(addr)? as u32) | (self.read(addr + 1)? as u32) << 8 | (self.read(addr + 2)? as u32) << 16 | (self.read(addr + 3)? as u32) << 24;
         let data = f32::from_bits(data);
         self.fs[f0] = data;
         self.update_flags_float(data);
         Ok(())
+    }
+
+    fn store_indirect_int(&mut self, x0: usize, addr: usize) -> Result<(), InvalidMemoryAccess> {
+        let addr = self.xs[addr];
+        self.write(addr, self.xs[x0] as u8)?;
+        self.write(addr, (self.xs[x0] >> 8) as u8)?;
+        self.write(addr, (self.xs[x0] >> 16) as u8)?;
+        self.write(addr, (self.xs[x0] >> 24) as u8)
+    }
+
+    fn store_indirect_short(&mut self, x0: usize, addr: usize) -> Result<(), InvalidMemoryAccess> {
+        let addr = self.xs[addr];
+        self.write(addr, self.xs[x0] as u8)?;
+        self.write(addr, (self.xs[x0] >> 8) as u8)
+    }
+
+    fn store_indirect_byte(&mut self, x0: usize, addr: usize) -> Result<(), InvalidMemoryAccess> {
+        let addr = self.xs[addr];
+        self.write(addr, self.xs[x0] as u8)
+    }
+
+    fn store_indirect_float(&mut self, f0: usize, addr: usize) -> Result<(), InvalidMemoryAccess> {
+        let addr = self.xs[addr];
+        let data = self.fs[f0].to_bits();
+        self.write(addr, data as u8)?;
+        self.write(addr, (data >> 8) as u8)?;
+        self.write(addr, (data >> 16) as u8)?;
+        self.write(addr, (data >> 24) as u8)
+    }
+
+    fn store_int(&mut self, x0: usize) -> Result<(), InvalidMemoryAccess> {
+        let addr = (self.exec()? as u32) | (self.exec()? as u32) << 1 | (self.exec()? as u32) << 2 | (self.exec()? as u32) << 3;
+        self.write(addr, self.xs[x0] as u8)?;
+        self.write(addr, (self.xs[x0] >> 8) as u8)?;
+        self.write(addr, (self.xs[x0] >> 16) as u8)?;
+        self.write(addr, (self.xs[x0] >> 24) as u8)
+    }
+
+    fn store_short(&mut self, x0: usize) -> Result<(), InvalidMemoryAccess> {
+        let addr = (self.exec()? as u32) | (self.exec()? as u32) << 1 | (self.exec()? as u32) << 2 | (self.exec()? as u32) << 3;
+        self.write(addr, self.xs[x0] as u8)?;
+        self.write(addr, (self.xs[x0] >> 8) as u8)
+    }
+
+    fn store_byte(&mut self, x0: usize) -> Result<(), InvalidMemoryAccess> {
+        let addr = (self.exec()? as u32) | (self.exec()? as u32) << 1 | (self.exec()? as u32) << 2 | (self.exec()? as u32) << 3;
+        self.write(addr, self.xs[x0] as u8)
+    }
+
+    fn store_float(&mut self, f0: usize) -> Result<(), InvalidMemoryAccess> {
+        let addr = (self.exec()? as u32) | (self.exec()? as u32) << 1 | (self.exec()? as u32) << 2 | (self.exec()? as u32) << 3;
+        let data = self.fs[f0].to_bits();
+        self.write(addr, data as u8)?;
+        self.write(addr, (data >> 8) as u8)?;
+        self.write(addr, (data >> 16) as u8)?;
+        self.write(addr, (data >> 24) as u8)
     }
 
     fn exec(&mut self) -> Result<u8, InvalidMemoryAccess> {
@@ -459,12 +515,28 @@ where T: Address
                     0x14 => self.load_indirect_int(fst, snd)?,
                     0x15 => self.load_indirect_float(fst, snd)?,
 
+                    // Store operations
+                    0x16 => self.store_indirect_int(fst, snd)?,
+                    0x17 => self.store_indirect_short(fst, snd)?,
+                    0x18 => self.store_indirect_byte(fst, snd)?,
+                    0x19 => self.store_indirect_float(fst, snd)?,
+
                     _ => ()
                 }
             }
 
-            // 0b11xxxxxx args -> miscellaneous arguments
+            // 0b11xxyyyy data -> one register argument and 32 bit data
             0xc0 => {
+                let data = opcode as usize & 0x0f;
+                match opcode & 0x30 {
+                    // Store at memory address
+                    0x00 => self.store_int(data)?,
+                    0x10 => self.store_short(data)?,
+                    0x20 => self.store_byte(data)?,
+                    0x30 => self.store_float(data)?,
+
+                    _ => unreachable!("nya :(")
+                }
             }
 
             _ => unreachable!("nya :(")
