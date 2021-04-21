@@ -561,14 +561,14 @@ where
     }
 
     fn exec(&mut self) -> Result<u8, InvalidMemoryAccess> {
-        self.check_memory(self.xs[R_PC], EXEC)?;
-        let res = self.addressing.read(self.xs[R_PC]);
+        let addr = self.check_memory(self.xs[R_PC], EXEC)?;
+        let res = self.addressing.read(addr);
         self.xs[R_PC] += 1;
         Ok(res)
     }
 
     fn read(&mut self, addr: u32) -> Result<u8, InvalidMemoryAccess> {
-        self.check_memory(addr, READ)?;
+        let addr = self.check_memory(addr, READ)?;
         Ok(self.addressing.read(addr))
     }
 
