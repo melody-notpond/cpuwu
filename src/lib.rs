@@ -1,9 +1,6 @@
 /*
 - memmap instructions (elevate, deelevate)
-- calling functions
-- returning from functions
 - returning from interrupts
-- push/pop instructions
 
 - system level, unlimited access to memory
 - user level, limited access to memory
@@ -20,7 +17,10 @@ const WRITE: u8 = 0b010;
 const EXEC: u8 = 0b001;
 
 #[derive(Debug)]
-pub struct InvalidMemoryAccess;
+pub enum InvalidMemoryAccess {
+    UsedFreePage,
+    InvalidPermissions(u8, u8)
+}
 
 impl std::fmt::Display for InvalidMemoryAccess {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
@@ -66,7 +66,7 @@ impl Address for SimpleAddress {
     }
 }
 
-pub struct CPU<T>
+pub struct Cpu<T>
 where
     T: Address,
 {
@@ -97,6 +97,9 @@ where
     // M        - Memory map enable
     flags: u32,
 
+    // Memory map register
+    memmap: u32,
+
     addressing: T,
 }
 
@@ -122,22 +125,49 @@ macro_rules! clear_flags {
     }
 }
 
-impl<T> CPU<T>
+impl<T> Cpu<T>
 where
     T: Address,
 {
-    pub fn new(t: T) -> CPU<T> {
-        CPU {
+    pub fn new(t: T) -> Cpu<T> {
+        Cpu {
             xs: [0; 16],
             fs: [0.0; 16],
             flags: 0,
+            memmap: 0,
             addressing: t,
         }
     }
 
-    fn check_memory(&self, addr: u32, permissions: u8) -> Result<u32, InvalidMemoryAccess> {
-        // TODO: actually do memory mapping stuff
-        Ok(addr)
+    fn check_memory(&mut self, addr: u32, permissions: u8) -> Result<u32, InvalidMemoryAccess> {
+        if self.flags & (1 << F_MEMMAP_ENABLE) != 0 {
+            let table_addr = self.memmap;
+            let table_addr = self.addressing.read(table_addr + (addr >> 24)) as u32
+                | (self.addressing.read(table_addr + (addr >> 24) + 1) as u32) << 8
+                | (self.addressing.read(table_addr + (addr >> 24) + 2) as u32) << 16
+                | (self.addressing.read(table_addr + (addr >> 24) + 3) as u32) << 24;
+
+            if table_addr == 0 {
+                return Err(InvalidMemoryAccess::UsedFreePage);
+            }
+
+            let addr = (self.addressing.read(table_addr + (addr >> 16 & 0xff)) as u32
+                | (self.addressing.read(table_addr + (addr >> 16 & 0xff) + 1) as u32) << 8
+                | (self.addressing.read(table_addr + (addr >> 16 & 0xff) + 2) as u32) << 16
+                | (self.addressing.read(table_addr + (addr >> 16 & 0xff) + 3) as u32) << 24)
+                + (addr & 0xffff);
+            let (p, addr) = (((addr & 0xf0000000) >> 28) as u8, addr & 0x0fffffff);
+
+            if p & 0x08 == 0 {
+                Err(InvalidMemoryAccess::UsedFreePage)
+            } else if p & permissions != permissions {
+                Err(InvalidMemoryAccess::InvalidPermissions(p, permissions))
+            } else {
+                Ok(addr)
+            }
+        } else {
+            Ok(addr)
+        }
     }
 
     fn set_flag(&mut self, flag: u32, val: bool) {
@@ -543,7 +573,7 @@ where
     }
 
     fn write(&mut self, addr: u32, data: u8) -> Result<(), InvalidMemoryAccess> {
-        self.check_memory(addr, WRITE)?;
+        let addr = self.check_memory(addr, WRITE)?;
         self.addressing.write(addr, data);
         Ok(())
     }
@@ -558,7 +588,6 @@ where
                     0x01 => self.set_carry(true),
                     0x02 => self.set_memmap_enable(false),
                     0x03 => self.set_memmap_enable(true),
-                    0x04 => self.set_user_ring(false),
                     0x05 => self.set_user_ring(true),
 
                     0x06 => self.call()?,
@@ -684,7 +713,7 @@ mod tests {
 
     #[test]
     fn cpu_add() {
-        let mut cpu = CPU::new(SimpleAddress::default());
+        let mut cpu = Cpu::new(SimpleAddress::default());
 
         // Simple add
         cpu.xs[0] = 5;
@@ -717,7 +746,7 @@ mod tests {
 
     #[test]
     fn cpu_bsl() {
-        let mut cpu = CPU::new(SimpleAddress::default());
+        let mut cpu = Cpu::new(SimpleAddress::default());
 
         // Simple bitshift
         cpu.xs[0] = 3;
@@ -743,7 +772,7 @@ mod tests {
 
     #[test]
     fn cpu_load_int() {
-        let mut cpu = CPU::new(SimpleAddress::default());
+        let mut cpu = Cpu::new(SimpleAddress::default());
 
         // Set up memory
         cpu.addressing.memory[0xff00] = 0xd0;
@@ -777,7 +806,7 @@ mod tests {
     #[test]
     #[allow(clippy::float_cmp)]
     fn cpu_load_float() {
-        let mut cpu = CPU::new(SimpleAddress::default());
+        let mut cpu = Cpu::new(SimpleAddress::default());
 
         // Set up memory
         let data = 0.618f32.to_bits();
@@ -811,7 +840,7 @@ mod tests {
 
     #[test]
     fn cpu_store_int() {
-        let mut cpu = CPU::new(SimpleAddress::default());
+        let mut cpu = Cpu::new(SimpleAddress::default());
 
         // Set up memory
         cpu.xs[0] = 0xa0b0c0d0;
@@ -839,7 +868,7 @@ mod tests {
 
     #[test]
     fn cpu_store_short() {
-        let mut cpu = CPU::new(SimpleAddress::default());
+        let mut cpu = Cpu::new(SimpleAddress::default());
 
         // Set up memory
         cpu.xs[0] = 0xa0b0;
@@ -863,7 +892,7 @@ mod tests {
 
     #[test]
     fn cpu_store_byte() {
-        let mut cpu = CPU::new(SimpleAddress::default());
+        let mut cpu = Cpu::new(SimpleAddress::default());
 
         // Set up memory
         cpu.xs[0] = 0xa0;
@@ -885,7 +914,7 @@ mod tests {
 
     #[test]
     fn cpu_store_float() {
-        let mut cpu = CPU::new(SimpleAddress::default());
+        let mut cpu = Cpu::new(SimpleAddress::default());
 
         // Set up memory
         cpu.fs[0] = 0.618;
@@ -914,7 +943,7 @@ mod tests {
 
     #[test]
     fn cpu_call_ret() {
-        let mut cpu = CPU::new(SimpleAddress::default());
+        let mut cpu = Cpu::new(SimpleAddress::default());
 
         // Set up registers and memory
         cpu.xs[R_PC] = 0x1234;
@@ -936,5 +965,22 @@ mod tests {
         assert_eq!(cpu.xs[R_PC], 0x1238);
         assert_eq!(cpu.xs[R_BASE], 0xbfff);
         assert_eq!(cpu.xs[R_SP], 0xbfc8);
+    }
+
+    #[test]
+    fn cpu_memmap() {
+        let mut cpu = Cpu::new(SimpleAddress::default());
+        cpu.flags |= 1 << F_MEMMAP_ENABLE;
+        cpu.memmap = 0x1234;
+        cpu.addressing.memory[0x1234] = 0x0a;
+        cpu.addressing.memory[0x1235] = 0x0b;
+        cpu.addressing.memory[0x1236] = 0x00;
+        cpu.addressing.memory[0x1237] = 0x00;
+        cpu.addressing.memory[0x0b0a] = 0x00;
+        cpu.addressing.memory[0x0b0b] = 0xee;
+        cpu.addressing.memory[0x0b0c] = 0x00;
+        cpu.addressing.memory[0x0b0d] = 0xa0;
+        cpu.write(0x000000bc, 0x42).unwrap();
+        assert_eq!(cpu.addressing.memory[0x0000eebc], 0x42);
     }
 }
