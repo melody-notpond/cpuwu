@@ -979,8 +979,10 @@ mod tests {
         cpu.addressing.memory[0x0b0a] = 0x00;
         cpu.addressing.memory[0x0b0b] = 0xee;
         cpu.addressing.memory[0x0b0c] = 0x00;
-        cpu.addressing.memory[0x0b0d] = 0xa0;
+        cpu.addressing.memory[0x0b0d] = 0xe0;
         cpu.write(0x000000bc, 0x42).unwrap();
         assert_eq!(cpu.addressing.memory[0x0000eebc], 0x42);
+        assert_eq!(cpu.read(0xbc).unwrap(), 0x42);
+        assert!(cpu.exec().is_err());
     }
 }
