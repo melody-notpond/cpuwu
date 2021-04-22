@@ -38,8 +38,17 @@ IIIIIIII LLLZVCNP AFRM
 There are two protection rings: system and user. The ring the cpu is currently in is determined by the user ring flag. The system ring has unlimited access to hardware and can execute any instruction, including enabling and disabling paging, switching to the user ring, and modifying the contents of the flags directly. The user ring has limited access to hardware and can only be disabled via an interrupt.
 
 ## Paging
+A page table is represented by two levels of tables. The first table is one kilobyte in size, and references other tables (not including itself) that are one kilobyte in size. Values that are zero in the first table are unused and can be allocated by the system as it wishes, whereas values in the second level of tables have their four most significant bits marked as indicated by the table below:
+| Bit | Label
+| --- | -----
+| 0   | Available
+| 1   | Readable
+| 2   | Writable
+| 3   | Executable
+If an unavailable page is accessed, or a page without sufficient permissions is used, then the cpu will issue a page fault and an nonmaskable interrupt will occur.
 
 ## Interrupts
 There are eight maskable interrupts. Interrupts are currently unimplemented so they do not have any documentation. :(
 
 ## Opcodes
+A table of opcodes will be provided when the design is finalised.
