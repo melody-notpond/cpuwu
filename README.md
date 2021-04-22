@@ -47,21 +47,23 @@ IIIIIIII LLLZVCNP AFRM
            111111 11112222 22222233
 01234567 89012345 67890123 45678901
 ```
-| Label    | Bit Range | Name           | Details
-| -------- | --------- | -------------- | -------
-| IIIIIIII | 0-7       | Interrupt mask | Determines which maskable interrupts can interrupt the program.
-| LLL      | 8-10      | Last interrupt | Identifier of the last interrupt called (0-7).
-| Z        | 11        | Zero           |
-| V        | 12        | Overflow       |
-| C        | 13        | Carry          |
-| N        | 14        | Negative       | Enabled if and only if the sign bit of the last integer operation is enabled.
-| P        | 15        | Parity         | Enabled if and only if the least significant bit of the last integer operation is enabled.
-| A        | 11        | NaN            | Enabled if and only if the last floating point operation resulted in a NaN.
-| F        | 11        | Infinite       | Enabled if and only if the last floating point operation resulted in infinity.
-| R        | 11        | User ring      | When enabled, the executed program has less permissions. See [rings](#rings) for more details.
-| M        | 11        | Memory map     | When enabled, all operations to memory are passed through the paging table. See [MMU](#mmu) for more details.
+| Label      | Bit Range | Name           | Details
+| ---------- | --------- | -------------- | -------
+| `IIIIIIII` | 0-7       | Interrupt mask | Determines which maskable interrupts can interrupt the program.
+| `LLL`      | 8-10      | Last interrupt | Identifier of the last interrupt called (0-7).
+| `Z`        | 11        | Zero           | Enabled if and only if the last operation resulted in a zero.
+| `V`        | 12        | Overflow       | Enabled if and only if the last operation resulted in an overflow.
+| `C`        | 13        | Carry          | Enabled if and only if the carry bit was set in the last operation. 
+| `N`        | 14        | Negative       | Enabled if and only if the sign bit of the last integer operation is enabled.
+| `P`        | 15        | Parity         | Enabled if and only if the least significant bit of the last integer operation is enabled.
+| `A`        | 11        | NaN            | Enabled if and only if the last floating point operation resulted in a NaN.
+| `F`        | 11        | Infinite       | Enabled if and only if the last floating point operation resulted in infinity.
+| `R`        | 11        | User ring      | When enabled, the executed program has less permissions. See [rings](#rings) for more details.
+| `M`        | 11        | Memory map     | When enabled, all operations to memory are passed through the paging table. See [paging](#paging) for more details.
 
-## MMU
+## Rings
+
+## Paging
 
 ## Interrupts
 There are eight maskable interrupts. Interrupts are currently unimplemented so they do not have any documentation. :(
