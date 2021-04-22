@@ -37,7 +37,7 @@ The CPU has 16 32 bit integer registers, 16 32 bit floating point registers, 1 3
 | `f13`    | float|
 | `f14`    | float|
 | `f15`    | float|
-| `flags`  | int  | Contains flag information, see (flags)[#flags] |
+| `flags`  | int  | Contains flag information, see [flags](#flags) |
 | `memmap` | int  | Contains the pointer to the page table         |
 
 ## Flags
