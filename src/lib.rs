@@ -7,9 +7,9 @@
 
 */
 
-const READ: u8 = 0b100;
+const READ:  u8 = 0b100;
 const WRITE: u8 = 0b010;
-const EXEC: u8 = 0b001;
+const EXEC:  u8 = 0b001;
 
 #[derive(Debug)]
 pub enum InvalidMemoryAccess {
@@ -77,22 +77,26 @@ where
     fs: [f32; 16],
 
     // Flags
-    // IIIIIIII LLLZVCNP AFRM
-    //            111111 11112222 22222233
-    // 01234567 89012345 67890123 45678901
-    // IIIIIIII - Interrupt mask
+    //                      MRFAN PCVZQLLL
+    // 10987654 32109876 54321098 76543210
+    // 33222222 22221111 111111
     // LLL      - Last interrupt
+    // Q        - Interrupt enable
     // Z        - Zero
     // V        - oVerflow
     // C        - Carry
-    // N        - Negative
     // P        - Parity
+    // N        - Negative
     // A        - nAn
     // F        - inFinite
     // R        - user Ring (if enabled, certain features will be locked down until an interrupt
     //            occurs)
     // M        - Memory map enable
     flags: u32,
+
+    // Bits that are marked as 0 disable those interrupts from being added to the queue and being
+    // handled
+    interrupt_mask: u8,
 
     // Memory map register
     memmap: u32,
@@ -101,15 +105,16 @@ where
 }
 
 // Flags
-static F_ZERO: u32 = 11;
-static F_OVERFLOW: u32 = 12;
-static F_CARRY: u32 = 13;
-static F_NEGATIVE: u32 = 14;
-static F_PARITY: u32 = 15;
-static F_NAN: u32 = 16;
-static F_INFINITE: u32 = 17;
-static F_USER_RING: u32 = 18;
-static F_MEMMAP_ENABLE: u32 = 19;
+static F_INTERRUPT_ENABLE: u32 = 3;
+static F_ZERO: u32 = 4;
+static F_OVERFLOW: u32 = 5;
+static F_CARRY: u32 = 6;
+static F_PARITY: u32 = 7;
+static F_NEGATIVE: u32 = 8;
+static F_NAN: u32 = 9;
+static F_INFINITE: u32 = 10;
+static F_USER_RING: u32 = 11;
+static F_MEMMAP_ENABLE: u32 = 12;
 
 // Registers
 static R_PC: usize = 13;
@@ -131,6 +136,7 @@ where
             xs: [0; 16],
             fs: [0.0; 16],
             flags: 0,
+            interrupt_mask: 0xff,
             memmap: 0,
             addressing: t,
         }
@@ -180,22 +186,29 @@ where
         self.set_flag(F_CARRY, val);
     }
 
-    fn set_user_ring(&mut self, val: bool) {
+    fn set_user_ring(&mut self, val: bool) -> Result<(), InvalidMemoryAccess> {
         if !self.get_flag(F_USER_RING) {
             clear_flags!(self, F_USER_RING);
             self.set_flag(F_USER_RING, val);
+            Ok(())
         } else {
-            todo!("interrupt on invalid access");
+            Err(InvalidMemoryAccess::UnprivilegedOpcode)
         }
     }
 
-    fn set_memmap_enable(&mut self, val: bool) {
+    fn set_memmap_enable(&mut self, val: bool) -> Result<(), InvalidMemoryAccess> {
         if !self.get_flag(F_USER_RING) {
             clear_flags!(self, F_MEMMAP_ENABLE);
             self.set_flag(F_MEMMAP_ENABLE, val);
+            Ok(())
         } else {
-            todo!("interrupt on invalid access");
+            Err(InvalidMemoryAccess::UnprivilegedOpcode)
         }
+    }
+
+    fn set_interrupt_enable(&mut self, val: bool) {
+        clear_flags!(self, F_INTERRUPT_ENABLE);
+        self.set_flag(F_INTERRUPT_ENABLE, val);
     }
 
     fn call(&mut self) -> Result<(), InvalidMemoryAccess> {
@@ -599,40 +612,43 @@ where
         Ok(())
     }
 
-    fn decode_instruction(&mut self, opcode: u8) -> Result<(), InvalidMemoryAccess> {
+    fn decode_instruction(&mut self) -> Result<(), InvalidMemoryAccess> {
+        let opcode = self.exec()?;
         match opcode & 0xc0 {
             // 0b00xxxxxx -> no arguments
             0x00 => {
                 match opcode & 0x3f {
-                    // Setting and clearing flags
-                    0x00 => self.set_carry(false),
-                    0x01 => self.set_carry(true),
-                    0x02 => self.set_memmap_enable(false),
-                    0x03 => self.set_memmap_enable(true),
-                    0x05 => self.set_user_ring(true),
-
-                    0x06 => self.call()?,
-                    0x07 => self.ret()?,
-
                     // Branches
                     // Jumping is just mov x13, addr
                     // Takes in 32 bit data as an argument
-                    0x08 => self.branch_true(F_ZERO)?,
-                    0x09 => self.branch_true(F_OVERFLOW)?,
-                    0x0a => self.branch_true(F_CARRY)?,
-                    0x0b => self.branch_true(F_NEGATIVE)?,
-                    0x0c => self.branch_true(F_PARITY)?,
-                    0x0d => self.branch_true(F_NAN)?,
-                    0x0e => self.branch_true(F_INFINITE)?,
-                    0x0f => self.branch_true(F_MEMMAP_ENABLE)?,
-                    0x10 => self.branch_false(F_ZERO)?,
-                    0x11 => self.branch_false(F_OVERFLOW)?,
-                    0x12 => self.branch_false(F_CARRY)?,
-                    0x13 => self.branch_false(F_NEGATIVE)?,
-                    0x14 => self.branch_false(F_PARITY)?,
-                    0x15 => self.branch_false(F_NAN)?,
-                    0x16 => self.branch_false(F_INFINITE)?,
-                    0x17 => self.branch_false(F_MEMMAP_ENABLE)?,
+                    0x00 => self.branch_true(F_ZERO)?,
+                    0x01 => self.branch_true(F_OVERFLOW)?,
+                    0x02 => self.branch_true(F_CARRY)?,
+                    0x03 => self.branch_true(F_NEGATIVE)?,
+                    0x04 => self.branch_true(F_PARITY)?,
+                    0x05 => self.branch_true(F_NAN)?,
+                    0x06 => self.branch_true(F_INFINITE)?,
+                    0x07 => self.branch_true(F_MEMMAP_ENABLE)?,
+                    0x08 => self.branch_false(F_ZERO)?,
+                    0x09 => self.branch_false(F_OVERFLOW)?,
+                    0x0a => self.branch_false(F_CARRY)?,
+                    0x0b => self.branch_false(F_NEGATIVE)?,
+                    0x0c => self.branch_false(F_PARITY)?,
+                    0x0d => self.branch_false(F_NAN)?,
+                    0x0e => self.branch_false(F_INFINITE)?,
+                    0x0f => self.branch_false(F_MEMMAP_ENABLE)?,
+
+                    // Setting and clearing flags
+                    0x10 => self.set_carry(false),
+                    0x11 => self.set_carry(true),
+                    0x12 => self.set_memmap_enable(false)?,
+                    0x13 => self.set_memmap_enable(true)?,
+                    0x14 => self.set_interrupt_enable(false),
+                    0x15 => self.set_interrupt_enable(true),
+                    0x17 => self.set_user_ring(true)?,
+
+                    0x18 => self.call()?,
+                    0x19 => self.ret()?,
 
                     _ => (),
                 }
@@ -727,8 +743,15 @@ where
     }
 
     pub fn step(&mut self) -> Result<(), InvalidMemoryAccess> {
-        let opcode = self.exec()?;
-        self.decode_instruction(opcode)
+        self.decode_instruction()
+    }
+
+    pub fn irq(&mut self, id: u8) {
+        if 1 << id & self.interrupt_mask != 0 {
+        }
+    }
+
+    pub fn nmi() {
     }
 }
 
