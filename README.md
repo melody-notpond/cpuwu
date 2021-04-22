@@ -10,7 +10,7 @@ The CPU has 16 32 bit integer registers, 16 32 bit floating point registers, 1 3
 | `x14`      | int  | Stack base pointer
 | `x15`      | int  | Stack pointer
 | `f0`-`f15` | float| General purpose registers
-| `flags`    | int  | Contains flag information, see [flags](#flags)
+| `flags`    | int  | Contains flag information, see [flags](#flags) for more details
 | `memmap`   | int  | Contains the pointer to the page table
 
 ## Flags
@@ -22,7 +22,7 @@ IIIIIIII LLLZVCNP AFRM
 ```
 | Label      | Bit Range | Name           | Details
 | ---------- | --------- | -------------- | -------
-| `IIIIIIII` | 0-7       | Interrupt mask | Determines which maskable interrupts can interrupt the program.
+| `IIIIIIII` | 0-7       | Interrupt mask | Determines which maskable interrupts can interrupt the program. See [interrupts](#interrupts) for more details.
 | `LLL`      | 8-10      | Last interrupt | Identifier of the last interrupt called (0-7).
 | `Z`        | 11        | Zero           | Enabled if and only if the last operation resulted in a zero.
 | `V`        | 12        | Overflow       | Enabled if and only if the last operation resulted in an overflow.
