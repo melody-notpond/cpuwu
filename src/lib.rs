@@ -1,15 +1,10 @@
 /*
-- memmap instructions (elevate, deelevate)
+- interrupts
 - returning from interrupts
 
 - system level, unlimited access to memory
 - user level, limited access to memory
 
-first 4 bits set aside for mmu:
-- bit 0 - user readable
-- bit 1 - user writable
-- bit 2 - user executable
-- bit 3 - available
 */
 
 const READ: u8 = 0b100;
@@ -19,7 +14,8 @@ const EXEC: u8 = 0b001;
 #[derive(Debug)]
 pub enum InvalidMemoryAccess {
     UsedFreePage,
-    InvalidPermissions(u8, u8)
+    InvalidPermissions(u8, u8),
+    UnprivilegedOpcode
 }
 
 impl std::fmt::Display for InvalidMemoryAccess {
@@ -93,7 +89,8 @@ where
     // P        - Parity
     // A        - nAn
     // F        - inFinite
-    // R        - user Ring
+    // R        - user Ring (if enabled, certain features will be locked down until an interrupt
+    //            occurs)
     // M        - Memory map enable
     flags: u32,
 
@@ -560,6 +557,30 @@ where
         self.write(addr + 3, (data >> 24) as u8)
     }
 
+    fn privileged_move(&mut self, x0: usize, p: usize) -> Result<(), InvalidMemoryAccess> {
+        if p as u32 & F_USER_RING != 0 {
+            return Err(InvalidMemoryAccess::UnprivilegedOpcode);
+        }
+
+        match p {
+            0 => self.flags = self.xs[x0],
+            1 => self.memmap = self.xs[x0],
+
+            _ => ()
+        }
+
+        Ok(())
+    }
+
+    fn unprivileged_move(&mut self, p: usize, x0: usize) {
+        match p {
+            0 => self.xs[x0] = self.flags,
+            1 => self.xs[x0] = self.memmap,
+
+            _ => ()
+        }
+    }
+
     fn exec(&mut self) -> Result<u8, InvalidMemoryAccess> {
         let addr = self.check_memory(self.xs[R_PC], EXEC)?;
         let res = self.addressing.read(addr);
@@ -676,6 +697,10 @@ where
                     0x17 => self.store_indirect_short(fst, snd)?,
                     0x18 => self.store_indirect_byte(fst, snd)?,
                     0x19 => self.store_indirect_float(fst, snd)?,
+
+                    // Privileged move operations
+                    0x1a => self.privileged_move(fst, snd)?,
+                    0x1b => self.unprivileged_move(fst, snd),
 
                     _ => (),
                 }
