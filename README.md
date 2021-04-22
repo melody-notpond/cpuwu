@@ -6,12 +6,12 @@ The CPU has 16 32 bit integer registers, 16 32 bit floating point registers, 1 3
 | Register   | Type | Notes |
 | :--------: | ---- | ----- |
 | `x0`-`x12` | int  | General purpose registers
-| `x13`      | int  | Program counter    |
-| `x14`      | int  | Stack base pointer |
-| `x15`      | int  | Stack pointer      |
+| `x13`      | int  | Program counter
+| `x14`      | int  | Stack base pointer
+| `x15`      | int  | Stack pointer
 | `f0`-`f15` | float| General purpose registers
-| `flags`    | int  | Contains flag information, see [flags](#flags) |
-| `memmap`   | int  | Contains the pointer to the page table         |
+| `flags`    | int  | Contains flag information, see [flags](#flags)
+| `memmap`   | int  | Contains the pointer to the page table
 
 ## Flags
 The flags register is 32 bits, although almost half of the bits are currently unused. They are reserved for future expansion, and also because `u24` is not a thing in Rust. The table below indicates the flags available:
@@ -29,12 +29,13 @@ IIIIIIII LLLZVCNP AFRM
 | `C`        | 13        | Carry          | Enabled if and only if the carry bit was set in the last operation. 
 | `N`        | 14        | Negative       | Enabled if and only if the sign bit of the last integer operation is enabled.
 | `P`        | 15        | Parity         | Enabled if and only if the least significant bit of the last integer operation is enabled.
-| `A`        | 11        | NaN            | Enabled if and only if the last floating point operation resulted in a NaN.
-| `F`        | 11        | Infinite       | Enabled if and only if the last floating point operation resulted in infinity.
-| `R`        | 11        | User ring      | When enabled, the executed program has less permissions. See [rings](#rings) for more details.
-| `M`        | 11        | Memory map     | When enabled, all operations to memory are passed through the paging table. See [paging](#paging) for more details.
+| `A`        | 16        | NaN            | Enabled if and only if the last floating point operation resulted in a NaN.
+| `F`        | 17        | Infinite       | Enabled if and only if the last floating point operation resulted in infinity.
+| `R`        | 18        | User ring      | When enabled, the executed program has less permissions. See [rings](#rings) for more details.
+| `M`        | 19        | Memory map     | When enabled, all operations to memory are passed through the paging table. See [paging](#paging) for more details.
 
 ## Rings
+There are two protection rings: system and user. The ring the cpu is currently in is determined by the user ring flag. The system ring has unlimited access to hardware and can execute any instruction, including enabling and disabling paging, switching to the user ring, and modifying the contents of the flags directly. The user ring has limited access to hardware and can only be disabled via an interrupt.
 
 ## Paging
 
