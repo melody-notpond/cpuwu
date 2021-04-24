@@ -1,3 +1,5 @@
+use std::collections::VecDeque;
+
 /*
 - interrupts
 - returning from interrupts
@@ -101,6 +103,12 @@ where
     // Memory map register
     memmap: u32,
 
+    // System ring stack pointer (saved from x15 when switching to the user ring)
+    system_sp: u32,
+
+    // Queue of previously requested interrupts
+    interrupt_queue: VecDeque<u32>,
+
     addressing: T,
 }
 
@@ -117,6 +125,7 @@ static F_USER_RING: u32 = 11;
 static F_MEMMAP_ENABLE: u32 = 12;
 
 // Registers
+static R_INT: usize = 12;
 static R_PC: usize = 13;
 static R_BASE: usize = 14;
 static R_SP: usize = 15;
@@ -138,6 +147,8 @@ where
             flags: 0,
             interrupt_mask: 0xff,
             memmap: 0,
+            system_sp: 0,
+            interrupt_queue: VecDeque::new(),
             addressing: t,
         }
     }
@@ -206,9 +217,14 @@ where
         }
     }
 
-    fn set_interrupt_enable(&mut self, val: bool) {
-        clear_flags!(self, F_INTERRUPT_ENABLE);
-        self.set_flag(F_INTERRUPT_ENABLE, val);
+    fn set_interrupt_enable(&mut self, val: bool) -> Result<(), InvalidMemoryAccess> {
+        if !self.get_flag(F_USER_RING) {
+            clear_flags!(self, F_INTERRUPT_ENABLE);
+            self.set_flag(F_INTERRUPT_ENABLE, val);
+            Ok(())
+        } else {
+            Err(InvalidMemoryAccess::UnprivilegedOpcode)
+        }
     }
 
     fn call(&mut self) -> Result<(), InvalidMemoryAccess> {
@@ -217,17 +233,15 @@ where
             | (self.exec()? as u32) << 16
             | (self.exec()? as u32) << 24;
 
-        let mut data = self.xs[R_BASE];
-        for _ in 0..4 {
-            self.write(self.xs[R_SP], data as u8)?;
-            data >>= 8;
+        let data = self.xs[R_BASE];
+        for i in (0..4).rev() {
+            self.write(self.xs[R_SP], (data >> (i * 8)) as u8)?;
             self.xs[R_SP] -= 1;
         }
 
-        let mut data = self.xs[R_PC];
-        for _ in 4..8 {
-            self.write(self.xs[R_SP], data as u8)?;
-            data >>= 8;
+        let data = self.xs[R_PC];
+        for i in (0..4).rev() {
+            self.write(self.xs[R_SP], (data >> (i * 8)) as u8)?;
             self.xs[R_SP] -= 1;
         }
 
@@ -238,17 +252,15 @@ where
 
     fn ret(&mut self) -> Result<(), InvalidMemoryAccess> {
         self.xs[R_PC] = 0;
-        for _ in 0..4 {
+        for i in 0..4 {
             self.xs[R_BASE] += 1;
-            self.xs[R_PC] <<= 8;
-            self.xs[R_PC] |= self.read(self.xs[R_BASE])? as u32;
+            self.xs[R_PC] |= (self.read(self.xs[R_BASE])? as u32) << (8 * i);
         }
 
         let mut data = 0;
-        for _ in 4..8 {
+        for i in 0..4 {
             self.xs[R_BASE] += 1;
-            data <<= 8;
-            data |= self.read(self.xs[R_BASE])? as u32;
+            data |= (self.read(self.xs[R_BASE])? as u32) << (8 * i);
         }
 
         self.xs[R_SP] = self.xs[R_BASE];
@@ -460,12 +472,12 @@ where
     }
 
     fn move_int_float(&mut self, x0: usize, f1: usize) {
-        self.xs[x0] = self.fs[f1] as u32;
+        self.xs[x0] = (self.fs[f1] as i32) as u32;
         self.update_flags_int(self.xs[x0]);
     }
 
     fn move_float_int(&mut self, f0: usize, x1: usize) {
-        self.fs[f0] = self.xs[x1] as f32;
+        self.fs[f0] = (self.xs[x1] as i32) as f32;
         self.update_flags_float(self.fs[f0]);
     }
 
@@ -578,6 +590,7 @@ where
         match p {
             0 => self.flags = self.xs[x0],
             1 => self.memmap = self.xs[x0],
+            2 => self.interrupt_mask = self.xs[x0] as u8,
 
             _ => ()
         }
@@ -589,6 +602,7 @@ where
         match p {
             0 => self.xs[x0] = self.flags,
             1 => self.xs[x0] = self.memmap,
+            2 => self.xs[x0] = self.interrupt_mask as u32,
 
             _ => ()
         }
@@ -643,8 +657,8 @@ where
                     0x11 => self.set_carry(true),
                     0x12 => self.set_memmap_enable(false)?,
                     0x13 => self.set_memmap_enable(true)?,
-                    0x14 => self.set_interrupt_enable(false),
-                    0x15 => self.set_interrupt_enable(true),
+                    0x14 => self.set_interrupt_enable(false)?,
+                    0x15 => self.set_interrupt_enable(true)?,
                     0x17 => self.set_user_ring(true)?,
 
                     0x18 => self.call()?,
@@ -742,16 +756,51 @@ where
         Ok(())
     }
 
-    pub fn step(&mut self) -> Result<(), InvalidMemoryAccess> {
-        self.decode_instruction()
+    fn call_interrupt(&mut self, interrupt: u32) {
+        let flags = self.flags;
+        let int = self.xs[R_INT];
+        let pc = self.xs[R_PC];
+        self.xs[R_INT] = interrupt;
+
+        if self.get_flag(F_USER_RING) {
+            let sp = self.xs[R_SP];
+            let base = self.xs[R_BASE];
+            self.xs[R_SP] = self.system_sp;
+            self.xs[R_BASE] = 0;
+
+            for i in 4..8 {
+            }
+        } else {
+        }
+    }
+
+    pub fn step(&mut self) {
+        if !self.interrupt_queue.is_empty() && self.flags & F_INTERRUPT_ENABLE != 0 {
+            let interrupt = self.interrupt_queue.pop_front().unwrap();
+            self.call_interrupt(interrupt);
+
+        } else {
+            match self.decode_instruction() {
+                Ok(_) => (),
+                Err(e) => {
+                    self.nmi(match e {
+                        InvalidMemoryAccess::UsedFreePage => 0x00000000,
+                        InvalidMemoryAccess::InvalidPermissions(_, _) => 0x00000001,
+                        InvalidMemoryAccess::UnprivilegedOpcode => 0x00000002,
+                    })
+                }
+            }
+        }
     }
 
     pub fn irq(&mut self, id: u8) {
         if 1 << id & self.interrupt_mask != 0 {
+            self.interrupt_queue.push_back(id as u32);
         }
     }
 
-    pub fn nmi() {
+    pub fn nmi(&mut self, id: u32) {
+        // self.interrupt_queue.push_back(id | 0x80000000);
     }
 }
 

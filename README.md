@@ -46,7 +46,7 @@ A page table is represented by two levels of tables. The first table is one kilo
 | 1   | Readable
 | 2   | Writable
 | 3   | Executable
-If an unavailable page is accessed, or a page without sufficient permissions is used, then the cpu will issue a page fault and an nonmaskable interrupt will occur.
+If an unavailable page is accessed, or a page without sufficient permissions is used, then the cpu will issue a page fault and a nonmaskable interrupt will occur.
 
 ## Interrupts
 There are eight maskable interrupts. Interrupts are currently unimplemented so they do not have any documentation. :(
